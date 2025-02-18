@@ -7,9 +7,13 @@ struct hh
 end
 
 # Define household utility 
-function utility_hh(consumption, labor, rra, phi, frisch)
-    # Compute households' utility
-    return (consumption ^ (1 - rra) - 1)/(1 - rra) - phi * (labor ^ (1 + frisch) - 1)/(1 + frisch)
+function get_utility_hh(consumption, labor, rra, phi, frisch; normalise = false)
+    # Compute households' utility - with normalisation if necessary 
+    if normalise == true
+        return (consumption ^ (1 - rra) - 1)/(1 - rra) - phi * (labor ^ (1 + frisch) - 1)/(1 + frisch)
+    else
+        return (consumption ^ (1 - rra))/(1 - rra) - phi * (labor ^ (1 + frisch))/(1 + frisch)
+    end
 end
 
 

@@ -16,11 +16,16 @@
 using LinearAlgebra
 using Distances
 using Base.Threads
+using DelimitedFiles
+# using DataFrames
+# using Plots
 
 include("model_parameters.jl")
 include("production_and_government.jl")
-include("auxiliary_functions.jl")
+include("AuxiliaryFunctions.jl")
 include("numerics.jl")
+include("households.jl")
+include("SolvingFunctions.jl")
 
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
@@ -47,104 +52,57 @@ l_grid = makeGrid(l_min, l_max, N_l)
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
+# Temporary (TBM)
 w = 1
 r = 0.05
-# VFI = function(a_grid, rho_grid, l_grid, V0, pi_rho, w, Taxes)
+Tau_c = Tau_y = 0.136 # Temporary TBM
 
-    #Initialise utility function
-    U = zeros(N_rho, N_a, N_l, N_a) # Productivity X Assets t X Labor choice X Assets t+1
+# @elapsed hh_labor_taxes, hh_consumption, hh_consumption_tax, hh_utility = compute_hh_taxes_consumption_utility(a_grid, 
+#                                                                     N_a, rho_grid, l_grid, w, r, taxes, hh_parameters);
 
-    #Compute total labor income for each combination of labor and productivity
-    y = (l_grid * rho_grid') .* w 
+# Simplified version for one degree of progressivity of labor income and consumption taxes
+@elapsed hh_labor_taxes, hh_consumption, hh_consumption_tax, hh_utility = compute_hh_taxes_consumption_utility_(a_grid, 
+                                                                    N_a, rho_grid, l_grid, w, r, Tau_y, Tau_c, taxes, hh_parameters);
+        
 
-    # Compute taxation for each degree of progressivity - TBM: can be wrapped in a function
-    # Expanding dimensions for broadcasting
-    reshaped_y = ExpandMatrix(y, taxes.N_tau_y)
-    Tau_y = Vector2NDimMatrix(taxes.tau_y, ndims(y))
+# Checks
+hh_consumption[hh_consumption .< 0]
+hh_utility[hh_utility .== -Inf]                                                                    
+hh_consumption_tax[hh_consumption_tax .== 0]
 
-    # Compute the tax-adjusted income matrix - X: labor, Y: productivity, Z: progressivity degree
-    T_y = reshaped_y .* ones(1, 1, taxes.N_tau_y) .- taxes.lambda_y .* reshaped_y .^ (1 .- Tau_y);
+# VFI
+# Initialise value function arrays 
+V_guess = (a_grid' .* rho_grid) / (maximum(a_grid) * maximum(rho_grid));
+V_new = zeros(N_rho, N_a)
 
-    # Compute disposable income after asset transfers (savings a' and interests (1+r)a)
-    # Disposable income for each possible asset-state-specific interests yielded from t-1 
-    # 4th dim: a
-    y_after_interests = ExpandMatrix(T_y, N_a)
-    interests = Vector2NDimMatrix((1 + r) .* a_grid, ndims(T_y))
+# Initialise policy function array
+policy_a_index =zeros(Int64, N_l, N_rho, N_a)
+tv = zeros(N_a) # Temporary vector to store intermediate values
 
-    y_after_interests = y_after_interests .+ interests;
-
-    # Find resource allocated to consumption (consumption + consumption taxes) for each combination of 
-    # labor, productivity, degree of labor income progressivity, assets today
-    # 5th dim: a_prime 
-
-    consumption_expenditure = ExpandMatrix(y_after_interests, N_a)
-    savings = Vector2NDimMatrix(a_grid, ndims(y_after_interests))
-
-    consumption_expenditure = consumption_expenditure .- savings;
-
-    # Disentangle consumption from consumption + consumption taxes (Feldstein specification)
-    # for each degree of consumption tax progressivity
-
-    hh_consumption = ExpandMatrix(consumption_expenditure, taxes.N_tau_c);
-    # Vectorisation attempt
-    # tau_c_reshaped = Vector2NDimMatrix(taxes.tau_c, ndims(consumption_expenditure))
-
-    # consumption = find_c_feldstein.(consumption_expenditure, taxes.lambda_c, tau_c_reshaped)
-    size(hh_consumption)
-
-    hh_consumption .= max.(hh_consumption, 0);
-
-    @time @threads for i in 1:taxes.N_tau_c
-        # Set progressivity rate
-        prog_rate = taxes.tau_c[i]
-        # Find consumption
-        hh_consumption[:, :, :, :, :, i] = find_c_feldstein.(hh_consumption[:, :, :, :, :, i], 
-                                                            taxes.lambda_c, prog_rate) 
-    end
-
-    # Check
-    hh_consumption[1, 1, 1, 1, 1, :]
-
-    # TO DO: 
-    # 1. MANUAL CHECK OF RESULTS
-    # 2. CHECK PRE-EXISTING ZEROS AND ADJUST NEGATIVE VALUES IF NEEDED  
-    #Adjust negative values
-
-
-
-    # Find consumption for each degree of 
-    for l in 1:N_l
-        for rho in 1:N_rho
-            for tau in 1:taxes.N_tau_y
-                for a in 1:N_a
-                    for a_prime in 1:N_a
-                    # Extract income
-                    y
-
-
-
-VFI = function(r, w, agrid, sgrid, V0, prob, par)
-
-    Ns = length(sgrid)
-    Na = length(agrid)
-
-
-    U = zeros(Ns, Na, Na)
-
-    for is in 1:Ns                     # Loop Over skills Today
-        for ia in 1:Na                 # Loop Over assets Today
-            for ia_p in 1:Na           # Loop Over assets Tomorrow
-                s = sgrid[is]         # Technology Today
-                a = agrid[ia]         # Capital Today
-                a_p = agrid[ia_p]     # Capital Tomorrow
-                # Solve for Consumption at Each Point
-                c = (1 + r) * a + s * w - a_p
-                if c .< 0
-                    U[is, ia, ia_p] = -10^6
-                else
-                    ()
-                    U[is, ia, ia_p] = c^(1 - par.mu) / (1 - par.mu)
-                end
+@time for iter in 1:comp_params.vfi_max_iter
+    for i_l in 1:N_l
+        for i_rho in 1:N_rho
+            for i_a in 1:N_a
+                tv .= (hh_utility[i_l, i_rho, i_a, :]' + hh_parameters.beta * pi_rho[i_rho, :]' * V_guess[:, :])'
+                (V_new[i_rho, i_a], policy_a_index[i_l, i_rho, i_a]) = findmax(tv[:]) # Find the maximum value and corresponding policy index
             end
         end
     end
+    if maximum(abs, V_guess .- V_new) < comp_params.vfi_tol
+        println("Found solution after $iter iterations")
+        break
+    elseif iter == comp_params.vfi_max_iter
+        println("No solution found after $iter iterations")
+    end
+    V_guess .= copy(V_new)  # Update the guess with the new value function
+    # err = maximum(abs, Vguess .- Vnew) # Calculate the error between the current and new value functions
+    #println("#iter = $iter, εᵥ = $err") # Print the iteration number and error
+end 
+
+##### PARALLELISED ####
+
+# Store the VFI guess 
+SaveMatrix(V_guess, "output/preliminary/V_guess_matrix.txt")
+V_guess_read = ReadMatrix("output/preliminary/V_guess_matrix.txt")
+
+

@@ -33,11 +33,21 @@ end
 end
 
 ## Tests on numerical functions
-@testset "Numerics" begin
+@testset "Feldstein Root Finding" begin
     # Feldstein specification solution
+    # Flat rate
     rate = 0.2
-    solution = find_c_feldstein(1, 1 - rate, 0)
+    lambda = 1 - rate
+    k = 1
+    solution = find_c_feldstein(k, lambda, 0)
     @test (1 + rate)solution == 1 
+
+    # Progressive rate
+    prog_rate = 0.3
+    solution = find_c_feldstein(k, lambda, prog_rate)
+
+    @test k == solution + solution - lambda * solution^(1 - prog_rate)
+
 end
 
 @testset "ExpandMatrix function" begin

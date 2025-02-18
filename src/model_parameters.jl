@@ -23,7 +23,21 @@ using LinearAlgebra
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
-# Households
+# Households parameters
+# Utility
+struct hh_param
+    beta         ::Float64        # Discount factor
+    rra          ::Float64        # Relative risk-aversion coefficient
+    phi          ::Float64        # Psi parameter - relative disutility of labor - Ferriere et al. 2023
+    frisch       ::Float64        # Frisch elasticity of substitution - Ferriere et al. 2023
+end
+
+hh_parameters = hh_param(
+    0.96,         # Discount factor    
+    2.000,        # Relative risk-aversion coefficient
+    85.00,        # Psi parameter - relative disutility of labor - Ferriere et al. 2023
+    2.5           # Frisch elasticity of substitution - Ferriere et al. 2023
+)
 
 # Labor productivity - Li(2013) - TBM
 rho_grid = [0.1805, 0.3625, 0.8127, 1.8098, 3.8989, 8.4002, 18.0980]
@@ -97,6 +111,17 @@ lambda_c = 0.7
 tau_c = [0.136, 0.2]
 
 taxes = Taxes(lambda_y, tau_y, lambda_c, tau_c)
+
+# Iterations and computations
+struct CompParams
+    vfi_max_iter::Int64
+    vfi_tol::Float64
+end
+
+
+comp_params = CompParams(
+    3000, 10^(-4)
+)
 
 
 ### - ### OLD ### - ###

@@ -12,13 +12,59 @@ using Roots
 
 # Solving non-linear equation for consumption given by Feldstein tax specification
 # Equation type: 2c - λ_c*c^(1 - τ_c) = k
+# This function allows for negative values of k but positive values of consumption
+# i.e., it allows for government redistribution through consumption tax
+# if the No-tax area upper bound is not specified (notax_upper)
+# If notax_upper is specified, the function will assume zero taxes up to that point
 function find_c_feldstein(k, lambda_c, tau_c)
     # Define function
-    f = c -> 2c - lambda_c * c ^ (1 - tau_c) - k
+    f = c -> 2c - lambda_c * c^(1 - tau_c) - k
 
-    # Find solution
-    # c_star = find_zero(f, (0,1), Bisection()) #Benchmark
-    c_star = find_zero(f, 0.5)
+    c_star = 0.00
+    # Try to find the solution
+    try
+        # Find solution, if any
+        c_star = find_zero(f, 0.5)
+    catch e
+        if isa(e, DomainError)
+            # Handle DomainError by returning -Inf or another appropriate value
+            return -Inf
+        else
+            # Rethrow other exceptions
+            throw(e)
+        end
+    end
+
+    return c_star
+end
+
+function find_c_feldstein(k, lambda_c, tau_c; notax_upper=nothing)
+    # Define the function based on the notax_upper argument
+    if notax_upper !== nothing && k <= notax_upper
+        # Use the simplified function if notax_upper is provided
+        # If there is a tax-exemption area, impose T(c) to be zero in that region
+        f = c -> c - k
+    else
+        # Use the original function otherwise
+        f = c -> 2c - lambda_c * c^(1 - tau_c) - k
+    end
+
+    # Pre-allocate c_star with a default value
+    c_star = 0.0
+
+    # Try to find the solution
+    try
+        # Find solution, if any
+        c_star = find_zero(f, 0.5) #0.5 Initial guess, adjustable
+    catch e
+        if isa(e, DomainError)
+            # Handle DomainError by returning -Inf
+            return -Inf
+        else
+            # Rethrow other exceptions
+            throw(e)
+        end
+    end
 
     return c_star
 end
