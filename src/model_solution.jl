@@ -16,10 +16,12 @@
 using LinearAlgebra
 using Distances
 using Base.Threads
+using Interpolations
 using DelimitedFiles
 # using DataFrames
 using Plots
 using BenchmarkTools
+
 
 include("model_parameters.jl")
 include("production_and_government.jl")
@@ -76,11 +78,11 @@ test_budget_constraint()
 
 #---------------------# PERFORM VFI - VECTORISED VERSION #--------------------#
 
-@elapsed V_new, policy_a_index, policy_l_index = vectorizedVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho)
-@benchmark vectorizedVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho)
+@elapsed V_new, policy_a_index, policy_l_index = standardVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho)
+#@benchmark standardVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho)
 
-@elapsed V_new2, policy_a_index2, policy_l_index2 = vectorizedVFI2(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho)
-@benchmark vectorizedVFI2(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho)
+@elapsed V_new2, policy_a_index2, policy_l_index2 = MemoryEffVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho)
+@benchmark MemoryEffVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho)
 
 ############ RANDOM CHECK - BUDGET CONSTRAINT HOLDS FOR SOLUTIONS #############
 
@@ -129,4 +131,44 @@ display(plt)
 SaveMatrix(V_new, "output/preliminary/V_guess_matrix.txt")
 V_guess_read = ReadMatrix("output/preliminary/V_guess_matrix.txt")
 
+################ INTERPOLATE ##################
 
+fine_grid = range(a_min, a_max, length=500)  # Finer grid with 500 points
+
+# Store interpolated values for plotting
+interp_policy_a = zeros(size(policy_a, 1), length(fine_grid))
+a_grid_r = range(a_min, a_max, N_a)
+
+# Loop over each productivity level
+for rho_i in 1:size(policy_a, 1)
+    # Get the policy function for the current productivity level
+    policy_values = policy_a[rho_i, :]
+
+    # Create the cubic spline interpolant
+    itp = cubic_spline_interpolation(a_grid_r, policy_values, extrapolation_bc=Flat())
+
+    # Evaluate the interpolant on the fine grid
+    interp_policy_a[rho_i, :] = itp.(fine_grid)
+end
+
+# Plot
+# Define colors for each productivity level
+colors = palette(:viridis, size(policy_a, 1));
+
+# Plot the interpolated policy functions
+p = plot(
+    fine_grid, interp_policy_a[1, :],
+    label="ρ = $(rho_grid[1])", color=colors[1], linewidth=2,
+    xlabel = "Assets (a)", ylabel = "Next Period Assets (a')",
+    title = "Smoothed Policy Functions for Assets",
+    legend = :bottomright);
+
+for rho_i in 2:N_rho
+    plot!(p, fine_grid, interp_policy_a[rho_i, :],
+          label="ρ = $(rho_grid[rho_i])",
+          color=colors[rho_i], linewidth=2)
+end
+
+# Add labels and legend
+
+display(p)

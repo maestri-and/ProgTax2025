@@ -205,7 +205,7 @@ end
 # Speed 176.096 s
 # Memory 126.66 GB
 
-function vectorizedVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho)
+function standardVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho)
     # Initialize the state-dependent value function guess (over rho and a)
     V_guess = zeros(N_rho, N_a)
     
@@ -281,10 +281,10 @@ end
 # Speed 3.02 s
 # Memory 1.48 GB
 # Benchmarking results, state space with N_l = 50, N_rho = 7, N_a = 300, N_tau_c=N_tau_y=1
-# Speed 176.096 s
-# Memory 126.66 GB
+# Speed 158.803 s
+# Memory 63.25 GB
 
-function vectorizedVFI2(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho)
+function MemoryEffVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho)
     # Initialize the state-dependent value function guess (over ρ and a)
     V_guess = zeros(N_rho, N_a)
     
