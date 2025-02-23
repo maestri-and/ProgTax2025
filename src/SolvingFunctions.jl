@@ -114,7 +114,7 @@ end
 
 ### Simpler version: single rate of progressivity for consumption taxes and labor income taxes
 
-compute_hh_taxes_consumption_utility_ = function(a_grid, N_a, rho_grid, l_grid, w, r, Tau_y, Tau_c, taxes, hh_parameters)
+function compute_hh_taxes_consumption_utility_(a_grid, N_a, rho_grid, l_grid, w, r, Tau_y, Tau_c, taxes, hh_parameters)
 
     #Compute gross labor income for each combination of labor and productivity
     y = (l_grid * rho_grid') .* w 
@@ -184,6 +184,89 @@ compute_hh_taxes_consumption_utility_ = function(a_grid, N_a, rho_grid, l_grid, 
                                                 get_utility_hh.(hh_consumption[l, :, :, :],
                                                 l_grid[l], hh_parameters.rra, hh_parameters.phi, hh_parameters.frisch), 
                                                 hh_utility[l, :, :, :])
+    end
+
+    return T_y, hh_consumption, hh_consumption_tax, hh_utility
+end
+
+#### Memory efficient version - More in-place operations + @views
+### Memory gains: 24% 
+
+function compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, N_l, w, r, Tau_y, Tau_c, taxes, hh_parameters)
+
+    # SECTION 1 - COMPUTE DISPOSABLE INCOME (AFTER WAGE TAX & ASSET RETURNS) #
+    
+    #Compute gross labor income for each combination of labor and productivity
+    y = (l_grid * rho_grid') .* w 
+
+    # Compute labor income taxes for one degree of labor income tax progressivity - Allowing negative tax
+    T_y = y .- taxes.lambda_y .* y .^ (1 - Tau_y);
+
+    # Correct for negative tax
+    # T_y = max.(T_y, 0)
+
+    # Compute net labor income
+    y .-= T_y
+
+    # Compute disposable income after asset transfers (gross capital returns (1+r)a)
+    # Disposable income for each possible asset-state-specific interests yielded from t-1 
+    # 3rd dim: a
+    old_dims_y = ndims(y)
+    y = ExpandMatrix(y, N_a)
+    gross_capital_returns = Vector2NDimMatrix((1 + r) .* a_grid, old_dims_y)
+
+    y .+= gross_capital_returns;
+
+    ########## SECTION 2 - COMPUTE CONSUMPTION AND CONSUMPTION TAXES ##########
+
+    # Find resource allocated to consumption (consumption + consumption taxes) for each combination of 
+    # labor, productivity, assets today
+    # 4th dim: a_prime 
+    old_dims_y = ndims(y)
+    hh_consumption_plus_tax = ExpandMatrix(y, N_a)
+    savings = Vector2NDimMatrix(a_grid, old_dims_y) #a'
+
+    hh_consumption_plus_tax .-= savings;
+
+    # Disentangle consumption from consumption + consumption taxes (Feldstein specification)
+    # for one degree of consumption tax progressivity
+
+    # Initialise consumption matrix
+    hh_consumption = copy(hh_consumption_plus_tax);
+
+    # Find consumption level
+    # ALLOWING FOR CONSUMPTION SUBSIDIES THROUGH CONSUMPTION TAX 
+    # Comment the "; notax_upper = break_even" line to allow for redistributive subsidies
+    # Through consumption tax
+
+    # Set progressivity rate
+    prog_rate = Tau_c
+
+    # Find break-even point 
+    break_even = taxes.lambda_c^(1/prog_rate)
+
+    # To allow for redistributive subsidies remove the notax_upper argument from the function
+    @views hh_consumption[:, :, :, :] .= find_c_feldstein.(hh_consumption_plus_tax[:, :, :, :], taxes.lambda_c, prog_rate
+    ; notax_upper = break_even
+    )
+
+    # Retrieve consumption tax
+    hh_consumption_tax = hh_consumption_plus_tax .- hh_consumption;
+
+    # Correct negative consumption 
+    hh_consumption[hh_consumption .< 0] .= -Inf
+
+    ########## SECTION 3 - COMPUTE HOUSEHOLD UTILITY ##########
+
+    # Compute households utility
+    hh_utility = similar(hh_consumption); # Pre-allocate
+
+    # Compute household utility if consumption is positive
+    @threads for l in 1:N_l
+        @views hh_utility[l, :, :, :] .= ifelse.(hh_consumption[l, :, :, :] .> 0,
+                                                get_utility_hh.(hh_consumption[l, :, :, :],
+                                                l_grid[l], hh_parameters.rra, hh_parameters.phi, hh_parameters.frisch), 
+                                                hh_consumption[l, :, :, :])
     end
 
     return T_y, hh_consumption, hh_consumption_tax, hh_utility

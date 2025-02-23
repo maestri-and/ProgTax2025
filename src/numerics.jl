@@ -83,9 +83,9 @@ function ExpandMatrix(matrix::AbstractArray, new_dim_length::Int64)
     levels = push!(ones(Int64, length(mat_size)), new_dim_length)
 
     # Expand matrix
-    new_matrix = matrix .* ones(Float64, Tuple(levels))
+    matrix = matrix .* ones(Float64, Tuple(levels))
 
-    return new_matrix
+    return matrix
 end
 
 # Starting from a vector, create an Array of N dimension

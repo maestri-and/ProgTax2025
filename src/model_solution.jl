@@ -69,9 +69,17 @@ Tau_c = Tau_y = 0.136 # Temporary TBM
 #                                                                     N_a, rho_grid, l_grid, w, r, taxes, hh_parameters);
 
 # Simplified version for one degree of progressivity of labor income and consumption taxes
-@elapsed hh_labor_taxes, hh_consumption, hh_consumption_tax, hh_utility = compute_hh_taxes_consumption_utility_(a_grid, 
+@elapsed hh_labor_taxes, hh_consumption, hh_consumption_tax, hh_utility = compute_hh_taxes_consumption_utility_ME(a_grid, 
                                                                     N_a, rho_grid, l_grid, w, r, Tau_y, Tau_c, taxes, hh_parameters);
- 
+
+# @benchmark compute_hh_taxes_consumption_utility_(a_grid, N_a, rho_grid, l_grid, w, r, Tau_y, Tau_c, taxes, hh_parameters)
+
+# @elapsed hh_labor_taxes2, hh_consumption2, hh_consumption_tax2, hh_utility2 = compute_hh_taxes_consumption_utility_ME(a_grid, 
+#                                                                     N_a, rho_grid, l_grid, w, r, Tau_y, Tau_c, taxes, hh_parameters);
+
+@benchmark compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, N_l, w, r, Tau_y, Tau_c, taxes, hh_parameters)
+
+
 #################### RANDOM CHECK - BUDGET CONSTRAINT HOLDS ###################
 
 test_budget_constraint()
