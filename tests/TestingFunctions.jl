@@ -13,9 +13,14 @@ include("../src/households.jl")
 include("../src/SolvingFunctions.jl")
 
 ###############################################################################
+###############################################################################
 ###############################  IN-CODE TESTS ################################
 ###############################################################################
+###############################################################################
 
+###############################################################################
+#------------------------#  BUDGET CONSTRAINT TESTS #-------------------------#
+###############################################################################
 
 function test_budget_constraint()
     # This function tests that the budget constraint holds after the creation
@@ -137,6 +142,38 @@ function test_optimal_budget_constraint()
     end
 end
 
+###############################################################################
+#----------------------------#  EFFICIENCY TESTS #----------------------------#
+###############################################################################
+
+
+
+
+# Function to perform benchmarking and save results
+function benchmark_grid_size(filename::String, n::Int)
+    open(filename, "w") do file
+        for i in 1:n
+            try
+                # Benchmark the action
+                result = @benchmark my_action($i)
+
+                # Extract time and memory allocation
+                time = minimum(result.times)
+                allocations = result.memory
+
+                # Write the results to the file
+                write(file, "Iteration $i: Time = $time, Allocations = $allocations\n")
+            catch e
+                # If an error occurs, write the error message and stop
+                write(file, "Error at iteration $i: $e\n")
+                break
+            end
+        end
+    end
+end
+
+# Run the benchmarking script
+# benchmark_and_save("benchmark_output.txt", 1000)
 
 ###############################################################################
 ################################# OTHER TESTS #################################

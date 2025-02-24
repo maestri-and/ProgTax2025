@@ -72,12 +72,12 @@ g_star       = 0.680        # Nondiscretionary spending over tax revenues
 # Assets
 a_min        = 1.000        # Lower bound for asset space
 a_max        = 5.000        # Upper bound for asset space
-N_a          = 100          # Number of points for asset grid
+N_a          = 750          # Number of points for asset grid
 
 # Labor
 l_min        = 0.000        # Lower bound for labor space
 l_max        = 1.000        # Upper bound for labor space
-N_l          = 10          # Number of points for labor grid
+N_l          = 300          # Number of points for labor grid
 
 # Taxation
 # First minimal definition - TBM and vectorised

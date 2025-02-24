@@ -367,9 +367,13 @@ end
 # Speed 158.803 s
 # Memory 63.25 GB
 
-function MemoryEffVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho)
-    # Initialize the state-dependent value function guess (over ρ and a)
-    V_guess = zeros(N_rho, N_a)
+function MemoryEffVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho; V_guess_read = nothing)
+    if V_guess_read == nothing 
+        # Initialize the state-dependent value function guess (over ρ and a)
+        V_guess = zeros(N_rho, N_a)
+    else
+        V_guess = V_guess_read 
+    end
     
     # Preallocate the policy arrays (for state (ρ, a))
     policy_a_index = zeros(Int64, N_rho, N_a)
@@ -383,7 +387,7 @@ function MemoryEffVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, p
     asset_policy_candidate = zeros(Int64, N_l, N_rho, N_a)
 
     # Continuation value
-    cont = zeros(N_rho, N_a)
+    cont = zeros(N_rho, 1, N_a)
     max_vals    = zeros(N_rho, N_a)
     argmax_vals = zeros(N_rho, N_a)
     
@@ -393,13 +397,13 @@ function MemoryEffVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, p
     for iter in 1:comp_params.vfi_max_iter
         # --- Step 1: Compute continuation value ---
         # cont[ρ, j] = Σ_{ρ'} π(ρ,ρ') V_guess(ρ', j)
-        cont .= pi_rho * V_guess  # (N_rho, N_a)
+        cont .= reshape(pi_rho * V_guess, (N_rho, 1, N_a))  # (N_rho, N_a) but reshaped for computation
         
         # --- Step 2: For each labor option, compute candidate value functions ---
         # For each labor option l, hh_utility[l, :, :, :] has shape (N_rho, N_a, N_a),
         # and we add beta*cont (reshaped to (N_rho,1,N_a)) along the asset-choice dimension.
-        for l in 1:N_l
-            candidate .= hh_utility[l, :, :, :] .+ hh_parameters.beta .* reshape(cont, (N_rho, 1, N_a))
+        @inbounds for l in 1:N_l
+            @views candidate .= hh_utility[l, :, :, :] .+ hh_parameters.beta .* cont
             # candidate now has shape (N_rho, N_a, N_a), where the 3rd dimension indexes next assets.
             # Vectorize the maximization over next assets:
             V_candidate[l, :, :] .= dropdims(maximum(candidate, dims=3), dims=3)
