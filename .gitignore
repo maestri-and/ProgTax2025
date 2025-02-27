@@ -5,6 +5,7 @@ src/refs/
 working_code.jl
 # Preliminary outputs
 output/preliminary/local/
+output/temp/
 # VSCode settings
 .vscode/
 

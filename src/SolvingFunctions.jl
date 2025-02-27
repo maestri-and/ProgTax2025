@@ -17,9 +17,10 @@ using LinearAlgebra
 using Base.Threads
 
 
-include("model_parameters.jl")
-include("numerics.jl")
-include("households.jl")
+include("Parameters.jl")
+include("Numerics.jl")
+include("Households.jl")
+include("AuxiliaryFunctions.jl")
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
@@ -28,167 +29,7 @@ include("households.jl")
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
 
-compute_hh_taxes_consumption_utility = function(a_grid, N_a, rho_grid, l_grid, w, r, taxes, hh_parameters)
-
-    #Compute gross labor income for each combination of labor and productivity
-    y = (l_grid * rho_grid') .* w 
-
-    # Compute taxation for each degree of progressivity - TBM: can be wrapped in a function
-    # Expanding dimensions for broadcasting
-    # Dims: X: labor, Y: productivity, Z: progressivity degree of labor income tax
-    reshaped_y = ExpandMatrix(y, taxes.N_tau_y)
-    Tau_y = Vector2NDimMatrix(taxes.tau_y, ndims(y))
-
-    # Compute labor income taxes
-    T_y = reshaped_y .* ones(1, 1, taxes.N_tau_y) .- taxes.lambda_y .* reshaped_y .^ (1 .- Tau_y);
-
-    # Compute net labor income
-    net_y = reshaped_y .- T_y
-
-    # Compute disposable income after asset transfers (savings a' and interests (1+r)a)
-    # Disposable income for each possible asset-state-specific interests yielded from t-1 
-    # 4th dim: a
-    y_after_interests = ExpandMatrix(net_y, N_a)
-    interests = Vector2NDimMatrix((1 + r) .* a_grid, ndims(net_y))
-
-    y_after_interests = y_after_interests .+ interests;
-
-    # Find resource allocated to consumption (consumption + consumption taxes) for each combination of 
-    # labor, productivity, degree of labor income progressivity, assets today
-    # 5th dim: a_prime 
-
-    consumption_expenditure = ExpandMatrix(y_after_interests, N_a)
-    savings = Vector2NDimMatrix(a_grid, ndims(y_after_interests))
-
-    consumption_expenditure = consumption_expenditure .- savings;
-
-    # Disentangle consumption from consumption + consumption taxes (Feldstein specification)
-    # for each degree of consumption tax progressivity
-    # 6th dim: Degree of consumption tax progressivity (tau_c)
-
-    hh_consumption_plus_tax = ExpandMatrix(consumption_expenditure, taxes.N_tau_c);
-
-    # Initialise consumption matrix
-    hh_consumption = copy(hh_consumption_plus_tax);
-
-    # Find consumption level
-    # ALLOWING FOR CONSUMPTION SUBSIDIES THROUGH CONSUMPTION TAX 
-    # Comment the "; notax_upper = break_even" line to allow for redistributive subsidies
-    # Through consumption tax
-
-    @threads for i in 1:taxes.N_tau_c
-        # Set progressivity rate
-        prog_rate = taxes.tau_c[i]
-        # Find break-even point 
-        break_even = taxes.lambda_c^(1/prog_rate)
-        # Find consumption
-        # Assuming functional form with Tax-exemption area
-        # To allow for redistributive subsidies remove the notax_upper argument from the function
-        hh_consumption[:, :, :, :, :, i] .= find_c_feldstein.(hh_consumption_plus_tax[:, :, :, :, :, i], taxes.lambda_c, prog_rate
-        ; notax_upper = break_even
-        )
-                                            
-    end
-
-    # Retrieve consumption tax
-    hh_consumption_tax = hh_consumption_plus_tax .- hh_consumption;
-
-    # Correct negative consumption 
-    hh_consumption[hh_consumption .< 0] .= -Inf
-
-    # Compute households utility
-    hh_utility = copy(hh_consumption); # Pre-allocate
-
-    # Compute household utility if consumption is positive
-    @threads for l in 1:N_l
-        hh_utility[l, :, :, :, :, :] .= ifelse.(hh_consumption[l, :, :, :, :, :] .> 0,
-                                                get_utility_hh.(hh_consumption[l, :, :, :, :, :],
-                                                l_grid[l], hh_parameters.rra, hh_parameters.phi, hh_parameters.frisch), 
-                                                hh_utility[l, :, :, :, :, :])
-    end
-
-    return T_y, hh_consumption, hh_consumption_tax, hh_utility
-end
-
-
-
 ### Simpler version: single rate of progressivity for consumption taxes and labor income taxes
-
-function compute_hh_taxes_consumption_utility_(a_grid, N_a, rho_grid, l_grid, w, r, Tau_y, Tau_c, taxes, hh_parameters)
-
-    #Compute gross labor income for each combination of labor and productivity
-    y = (l_grid * rho_grid') .* w 
-
-    # Compute labor income taxes for one degree of labor income tax progressivity - Allowing negative tax
-    T_y = y .- taxes.lambda_y .* y .^ (1 - Tau_y);
-
-    # Correct for negative tax
-    # T_y = max.(T_y, 0)
-
-    # Compute net labor income
-    net_y = y .- T_y
-
-    # Compute disposable income after asset transfers (savings a' and interests (1+r)a)
-    # Disposable income for each possible asset-state-specific interests yielded from t-1 
-    # 3rd dim: a
-    y_after_interests = ExpandMatrix(net_y, N_a)
-    interests = Vector2NDimMatrix((1 + r) .* a_grid, ndims(net_y))
-
-    y_after_interests = y_after_interests .+ interests;
-
-    # Find resource allocated to consumption (consumption + consumption taxes) for each combination of 
-    # labor, productivity, assets today
-    # 4th dim: a_prime 
-
-    consumption_expenditure = ExpandMatrix(y_after_interests, N_a)
-    savings = Vector2NDimMatrix(a_grid, ndims(y_after_interests))
-
-    consumption_expenditure = consumption_expenditure .- savings;
-
-    # Disentangle consumption from consumption + consumption taxes (Feldstein specification)
-    # for one degree of consumption tax progressivity
-
-    hh_consumption_plus_tax = copy(consumption_expenditure)
-
-    # Initialise consumption matrix
-    hh_consumption = copy(hh_consumption_plus_tax);
-
-    # Find consumption level
-    # ALLOWING FOR CONSUMPTION SUBSIDIES THROUGH CONSUMPTION TAX 
-    # Comment the "; notax_upper = break_even" line to allow for redistributive subsidies
-    # Through consumption tax
-
-    # Set progressivity rate
-    prog_rate = Tau_c
-
-    # Find break-even point 
-    break_even = taxes.lambda_c^(1/prog_rate)
-
-    # To allow for redistributive subsidies remove the notax_upper argument from the function
-    hh_consumption[:, :, :, :] .= find_c_feldstein.(hh_consumption_plus_tax[:, :, :, :], taxes.lambda_c, prog_rate
-    ; notax_upper = break_even
-    )
-
-    # Retrieve consumption tax
-    hh_consumption_tax = hh_consumption_plus_tax .- hh_consumption;
-
-    # Correct negative consumption 
-    hh_consumption[hh_consumption .< 0] .= -Inf
-
-    # Compute households utility
-    hh_utility = copy(hh_consumption); # Pre-allocate
-
-    # Compute household utility if consumption is positive
-    @threads for l in 1:N_l
-        hh_utility[l, :, :, :] .= ifelse.(hh_consumption[l, :, :, :] .> 0,
-                                                get_utility_hh.(hh_consumption[l, :, :, :],
-                                                l_grid[l], hh_parameters.rra, hh_parameters.phi, hh_parameters.frisch), 
-                                                hh_utility[l, :, :, :])
-    end
-
-    return T_y, hh_consumption, hh_consumption_tax, hh_utility
-end
-
 #### Memory efficient version - More in-place operations + @views
 ### Memory gains: 24% 
 
@@ -250,11 +91,14 @@ function compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, 
     ; notax_upper = break_even
     )
 
-    # Retrieve consumption tax
-    hh_consumption_tax = hh_consumption_plus_tax .- hh_consumption;
+    # Retrieve consumption tax - in-place to avoid costly memory allocation
+    hh_consumption_plus_tax .-= hh_consumption;
+
+    # Rename for clarity
+    hh_consumption_tax = hh_consumption_plus_tax
 
     # Correct negative consumption 
-    hh_consumption[hh_consumption .< 0] .= -Inf
+    @views hh_consumption[hh_consumption .< 0] .= -Inf
 
     ########## SECTION 3 - COMPUTE HOUSEHOLD UTILITY ##########
 
@@ -272,6 +116,96 @@ function compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, 
     return T_y, hh_consumption, hh_consumption_tax, hh_utility
 end
 
+##### SPLIT AND WRITE TO DISK TO SAVE MEMORY #####
+
+function compute_consumption_grid(a_grid, rho_grid, l_grid, N_a, N_rho, N_l, w, r, Tau_y, Tau_c, taxes)
+    # SECTION 1 - COMPUTE DISPOSABLE INCOME (AFTER WAGE TAX & ASSET RETURNS) #
+    
+    #Compute gross labor income for each combination of labor and productivity
+    y = (l_grid * rho_grid') .* w 
+
+    # Compute labor income taxes for one degree of labor income tax progressivity - Allowing negative tax
+    T_y = y .- taxes.lambda_y .* y .^ (1 - Tau_y);
+
+    # Correct for negative tax
+    # T_y = max.(T_y, 0)
+
+    # Compute net labor income
+    y .-= T_y
+
+    # Compute disposable income after asset transfers (gross capital returns (1+r)a)
+    # Disposable income for each possible asset-state-specific interests yielded from t-1 
+    # 3rd dim: a
+    old_dims_y = ndims(y)
+    y = ExpandMatrix(y, N_a)
+    gross_capital_returns = Vector2NDimMatrix((1 + r) .* a_grid, old_dims_y)
+
+    y .+= gross_capital_returns;
+
+    ########## SECTION 2 - COMPUTE CONSUMPTION AND CONSUMPTION TAXES ##########
+
+    # Find resource allocated to consumption (consumption + consumption taxes) for each combination of 
+    # labor, productivity, assets today
+    # 4th dim: a_prime 
+    old_dims_y = ndims(y)
+    hh_consumption_plus_tax = ExpandMatrix(y, N_a)
+    savings = Vector2NDimMatrix(a_grid, old_dims_y) #a'
+
+    hh_consumption_plus_tax .-= savings;
+
+    # Disentangle consumption from consumption + consumption taxes (Feldstein specification)
+    # for one degree of consumption tax progressivity
+
+    # Initialise consumption matrix
+    hh_consumption = copy(hh_consumption_plus_tax);
+
+    # Find consumption level
+    # ALLOWING FOR CONSUMPTION SUBSIDIES THROUGH CONSUMPTION TAX 
+    # Comment the "; notax_upper = break_even" line to allow for redistributive subsidies
+    # Through consumption tax
+
+    # Set progressivity rate
+    prog_rate = Tau_c
+
+    # Find break-even point 
+    break_even = taxes.lambda_c^(1/prog_rate)
+
+    # To allow for redistributive subsidies remove the notax_upper argument from the function
+    @views hh_consumption[:, :, :, :] .= find_c_feldstein.(hh_consumption_plus_tax[:, :, :, :], taxes.lambda_c, prog_rate
+    ; notax_upper = break_even
+    )
+
+    # Retrieve consumption tax - in-place to avoid costly memory allocation
+    hh_consumption_plus_tax .-= hh_consumption;
+
+    # Rename for clarity
+    hh_consumption_tax = hh_consumption_plus_tax
+
+    # Correct negative consumption 
+    @views hh_consumption[hh_consumption .< 0] .= -Inf
+
+    # Write to disk consumption tax matrix for later usage 
+    filename = "ConsumptionTax_l$(N_l)_a$(N_a).txt"
+    SaveMatrix(hh_consumption_tax, "output/temp/" * filename)
+    return T_y, hh_consumption
+end
+
+function compute_utility_grid(hh_consumption, l_grid, hh_parameters)
+        ########## SECTION 3 - COMPUTE HOUSEHOLD UTILITY ##########
+
+    # Compute households utility
+    hh_utility = similar(hh_consumption); # Pre-allocate
+
+    # Compute household utility if consumption is positive
+    @threads for l in 1:N_l
+        @views hh_utility[l, :, :, :] .= ifelse.(hh_consumption[l, :, :, :] .> 0,
+                                                get_utility_hh.(hh_consumption[l, :, :, :],
+                                                l_grid[l], hh_parameters.rra, hh_parameters.phi, hh_parameters.frisch), 
+                                                hh_consumption[l, :, :, :])
+    end
+
+    return hh_utility
+end
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
@@ -368,7 +302,7 @@ end
 # Memory 63.25 GB
 
 function MemoryEffVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho; V_guess_read = nothing)
-    if V_guess_read == nothing 
+    if isnothing(V_guess_read) 
         # Initialize the state-dependent value function guess (over ρ and a)
         V_guess = zeros(N_rho, N_a)
     else

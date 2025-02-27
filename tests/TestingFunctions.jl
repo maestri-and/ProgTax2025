@@ -8,8 +8,8 @@
 
 using Test
 using DataFrames
-include("../src/model_parameters.jl")
-include("../src/households.jl")
+include("../src/Parameters.jl")
+include("../src/Households.jl")
 include("../src/SolvingFunctions.jl")
 
 ###############################################################################

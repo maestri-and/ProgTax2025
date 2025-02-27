@@ -23,11 +23,11 @@ using Plots
 using BenchmarkTools
 
 
-include("model_parameters.jl")
-include("production_and_government.jl")
+include("Parameters.jl")
+include("FirmsGov.jl")
 include("AuxiliaryFunctions.jl")
-include("numerics.jl")
-include("households.jl")
+include("Numerics.jl")
+include("Households.jl")
 include("SolvingFunctions.jl")
 include("../tests/TestingFunctions.jl")
 
@@ -45,18 +45,18 @@ println("Making grids...")
 a_grid = makeGrid(a_min, a_max, N_a)
 
 # Labor
-# l_grid = makeGrid(l_min, l_max, N_l)
+l_grid = makeGrid(l_min, l_max, N_l)
 
 # Custom labor grid
-coarse1 = 1/30    # proportion of points in [0, 0.1]
-dense   = 28/30   # proportion of points in [0.1, 0.5]
-coarse2 = 1/30    # proportion of points in [0.5, 1.0]
+# coarse1 = 1/25    # proportion of points in [0, 0.1]
+# dense   = 23/25   # proportion of points in [0.1, 0.5]
+# coarse2 = 1/25    # proportion of points in [0.5, 1.0]
 
-l_grid_low   = range(0.0, stop=0.1, length=Int(coarse1*N_l))
-l_grid_dense = range(0.1, stop=0.5, length=Int(dense*N_l+2))
-l_grid_high  = range(0.5, stop=1.0, length=Int(coarse2*N_l))
+# l_grid_low   = range(0.0, stop=0.1, length=Int(coarse1*N_l))
+# l_grid_dense = range(0.1, stop=0.5, length=Int(dense*N_l+2))
+# l_grid_high  = range(0.5, stop=1.0, length=Int(coarse2*N_l))
 
-l_grid = vcat(l_grid_low, l_grid_dense[2:end-1], l_grid_high)
+# l_grid = vcat(l_grid_low, l_grid_dense[2:end-1], l_grid_high)
 
 
 # Labor productivity - Defined in model_parameters.jl
@@ -86,13 +86,26 @@ println("Solving budget constraint...")
 #                                                                     N_a, rho_grid, l_grid, w, r, taxes, hh_parameters);
 
 # Simplified version for one degree of progressivity of labor income and consumption taxes
-@elapsed hh_labor_taxes, hh_consumption, hh_consumption_tax, hh_utility = compute_hh_taxes_consumption_utility_ME(a_grid, 
-                                                                    N_a, rho_grid, l_grid, N_l, w, r, Tau_y, Tau_c, taxes, hh_parameters);
+# @elapsed hh_labor_taxes, hh_consumption, hh_consumption_tax, hh_utility = compute_hh_taxes_consumption_utility_ME(a_grid, 
+#                                                                     N_a, rho_grid, l_grid, N_l, w, r, Tau_y, Tau_c, taxes, hh_parameters);
 
-# @benchmark compute_hh_taxes_consumption_utility_(a_grid, N_a, rho_grid, l_grid, w, r, Tau_y, Tau_c, taxes, hh_parameters)
+# @benchmark compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, w, r, Tau_y, Tau_c, taxes, hh_parameters)
 
-# @benchmark compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, N_l, w, r, Tau_y, Tau_c, taxes, hh_parameters)
+# Split operations to save memory 
+T_y, hh_consumption = compute_consumption_grid(a_grid, rho_grid, l_grid, N_a, N_rho, N_l, w, r, Tau_y, Tau_c, taxes)
+GC.gc()
+@views hh_consumption .= compute_utility_grid(hh_consumption, l_grid, hh_parameters)
 
+# Rename for clarity 
+hh_utility = hh_consumption
+
+# Benchmark 
+@benchmark begin
+    T_y, hh_consumption = compute_consumption_grid(a_grid, rho_grid, l_grid, N_a, N_rho, N_l, w, r, Tau_y, Tau_c, taxes)
+    @views hh_consumption .= compute_utility_grid(hh_consumption, l_grid, hh_parameters)
+end
+
+@benchmark compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, N_l, w, r, Tau_y, Tau_c, taxes, hh_parameters)
 
 #################### RANDOM CHECK - BUDGET CONSTRAINT HOLDS ###################
 
@@ -117,6 +130,11 @@ println("Launching VFI...")
 
 test_optimal_budget_constraint()
 
+
+# Store the VFI guess 
+SaveMatrix(V_new, "output/preliminary/V_guess_matrix_a" * "$N_a" * "_l" * "$N_l" * ".txt")
+# V_guess_read = ReadMatrix("output/preliminary/V_guess_matrix.txt")
+
 # Checks
 policy_a = a_grid[policy_a_index[:,:]]
 policy_l = l_grid[policy_l_index[:,:]]
@@ -139,7 +157,7 @@ end
 display(pfa)
 
 # Save the figure
-savefig(pfa, "output/preliminary/asset_policy_len$N_a.png")
+# savefig(pfa, "output/preliminary/asset_policy_len$N_a.png")
 
 
 ## Policy function for labor
@@ -158,15 +176,13 @@ end
 display(pfl)
 
 # Save the figure
-savefig(pfl, "output/preliminary/labor_policy_len300_cg.png")
-
-
-# Store the VFI guess 
-SaveMatrix(V_new, "output/preliminary/V_guess_matrix.txt")
-V_guess_read = ReadMatrix("output/preliminary/V_guess_matrix.txt")
+# savefig(pfl, "output/preliminary/labor_policy_l$N_l" * "_a$N_a" * ".png")
 
 ################ INTERPOLATE ##################
 
+# TBM - To be exported to other script
+
+println("Interpolating results...")
 ###### Interpolate Asset policy function ######
 
 fine_grid_a = range(a_min, a_max, length=2*N_a) 
@@ -208,7 +224,7 @@ end
 # Display and save
 display(pfa_int)
 
-savefig(pfa_int, "output/preliminary/asset_policy_int_len$N_a.png")
+# savefig(pfa_int, "output/preliminary/asset_policy_int_len$N_a.png")
 
 
 
@@ -251,5 +267,7 @@ end
 # Display and save
 display(pfl_int)
 
-savefig(pfl_int, "output/preliminary/asset_policy_int_len$N_l.png")
+# Create filename and save
+# filename = "asset_policy_int_l" * "$N_l" * "_a" * "$N_a" * ".png"
+# savefig(pfl_int, "output/preliminary/" * filename)
 

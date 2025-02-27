@@ -16,27 +16,6 @@ using Roots
 # i.e., it allows for government redistribution through consumption tax
 # if the No-tax area upper bound is not specified (notax_upper)
 # If notax_upper is specified, the function will assume zero taxes up to that point
-function find_c_feldstein(k, lambda_c, tau_c)
-    # Define function
-    f = c -> 2c - lambda_c * c^(1 - tau_c) - k
-
-    c_star = 0.00
-    # Try to find the solution
-    try
-        # Find solution, if any
-        c_star = find_zero(f, 0.5)
-    catch e
-        if isa(e, DomainError)
-            # Handle DomainError by returning -Inf or another appropriate value
-            return -Inf
-        else
-            # Rethrow other exceptions
-            throw(e)
-        end
-    end
-
-    return c_star
-end
 
 function find_c_feldstein(k, lambda_c, tau_c; notax_upper=nothing)
     # Define the function based on the notax_upper argument
@@ -67,6 +46,26 @@ function find_c_feldstein(k, lambda_c, tau_c; notax_upper=nothing)
     end
 
     return c_star
+end
+
+# TBM
+function imp_find_c_feldstein(k, lambda_c, tau_c; notax_upper=nothing)
+    # Check the tax-exemption condition upfront to avoid unnecessary allocations
+    if notax_upper !== nothing && k <= notax_upper
+        return k  # Directly return k if in the tax-exemption zone
+    end
+    
+    # Define the function outside the try block to reduce overhead
+    f(c) = 2c - lambda_c * c^(1 - tau_c) - k
+
+    # Use try-catch only for the root finding
+    try
+        # Find solution with an initial guess suitable for the expected range
+        return find_zero(f, 0.5)
+    catch e
+        # Directly check for DomainError
+        return isa(e, DomainError) ? -Inf : throw(e)
+    end
 end
 
 # Expand matrix by one dimension
