@@ -6,6 +6,59 @@
 
 ###############################################################################
 
+
+
+###############################################################################
+############################## FROM RUNMODEL.JL ###############################
+###############################################################################
+
+
+#### CUSTOM GRIDS ####
+# Custom labor grid
+# coarse1 = 1/25    # proportion of points in [0, 0.1]
+# dense   = 23/25   # proportion of points in [0.1, 0.5]
+# coarse2 = 1/25    # proportion of points in [0.5, 1.0]
+
+# l_grid_low   = range(0.0, stop=0.1, length=Int(coarse1*N_l))
+# l_grid_dense = range(0.1, stop=0.5, length=Int(dense*N_l+2))
+# l_grid_high  = range(0.5, stop=1.0, length=Int(coarse2*N_l))
+
+# l_grid = vcat(l_grid_low, l_grid_dense[2:end-1], l_grid_high)
+
+####### COMPUTING FULL CONSUMPTION GRID ########
+
+# Original version - including also tax progressivity rates
+# @elapsed hh_labor_taxes, hh_consumption, hh_consumption_tax, hh_utility = compute_hh_taxes_consumption_utility(a_grid, 
+#                                                                     N_a, rho_grid, l_grid, w, r, taxes, hh_parameters);
+
+# Simplified version for one degree of progressivity of labor income and consumption taxes
+# @elapsed hh_labor_taxes, hh_consumption, hh_consumption_tax, hh_utility = compute_hh_taxes_consumption_utility_ME(a_grid, 
+#                                                                     N_a, rho_grid, l_grid, N_l, w, r, Tau_y, Tau_c, taxes, hh_parameters);
+
+# @benchmark compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, w, r, Tau_y, Tau_c, taxes, hh_parameters)
+
+# Split operations to save memory 
+# @elapsed T_y, hh_consumption = compute_consumption_grid(a_grid, rho_grid, l_grid, N_a, N_rho, N_l, w, r, Tau_y, Tau_c, taxes)
+# # Sys.free_memory() |> Base.format_bytes
+# # varinfo()
+# GC.gc()
+# @elapsed @views hh_consumption .= compute_utility_grid(hh_consumption, l_grid, hh_parameters)
+
+# # Rename for clarity 
+# hh_utility = hh_consumption
+
+# # Benchmark 
+# @benchmark begin
+#     T_y, hh_consumption = compute_consumption_grid(a_grid, rho_grid, l_grid, N_a, N_rho, N_l, w, r, Tau_y, Tau_c, taxes)
+#     @views hh_consumption .= compute_utility_grid(hh_consumption, l_grid, hh_parameters)
+# end
+
+# @benchmark compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, N_l, w, r, Tau_y, Tau_c, taxes, hh_parameters)
+
+
+
+###### COMPUTING CONSUMPTION, TAXES AND UTILITY ######
+
 # This script computes consumption, consumption taxes and utility for each 
 # possible combination of 
 # 1. Labor

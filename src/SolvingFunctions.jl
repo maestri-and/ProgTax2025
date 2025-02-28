@@ -15,6 +15,8 @@
 
 using LinearAlgebra
 using Base.Threads
+using Interpolations
+using StatsBase
 
 
 include("Parameters.jl")
@@ -116,7 +118,10 @@ function compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, 
     return T_y, hh_consumption, hh_consumption_tax, hh_utility
 end
 
+###############################################################################
 ##### SPLIT AND WRITE TO DISK TO SAVE MEMORY #####
+###############################################################################
+
 
 function compute_consumption_grid(a_grid, rho_grid, l_grid, N_a, N_rho, N_l, w, r, Tau_y, Tau_c, taxes)
     # SECTION 1 - COMPUTE DISPOSABLE INCOME (AFTER WAGE TAX & ASSET RETURNS) #
@@ -190,6 +195,71 @@ function compute_consumption_grid(a_grid, rho_grid, l_grid, N_a, N_rho, N_l, w, 
     return T_y, hh_consumption
 end
 
+
+function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, N_a, N_rho, N_l, w, r, Tau_y, Tau_c, taxes)
+    # SECTION 1 - COMPUTE DISPOSABLE INCOME (AFTER WAGE TAX & ASSET RETURNS) #
+    
+    #Compute gross labor income for each combination of labor and productivity
+    y = (l_grid * rho_grid') .* w 
+
+    # Compute labor income taxes for one degree of labor income tax progressivity - Allowing negative tax
+    T_y = y .- taxes.lambda_y .* y .^ (1 - Tau_y);
+
+    # Correct for negative tax
+    # T_y = max.(T_y, 0)
+
+    # Compute net labor income
+    y .-= T_y
+
+    # Compute disposable income after asset transfers (gross capital returns (1+r)a)
+    # Disposable income for each possible asset-state-specific interests yielded from t-1 
+    # 3rd dim: a
+    old_dims_y = ndims(y)
+    y = ExpandMatrix(y, N_a)
+    gross_capital_returns = Vector2NDimMatrix((1 + r) .* a_grid, old_dims_y)
+
+    y .+= gross_capital_returns;
+
+    ########## SECTION 2 - COMPUTE CONSUMPTION AND CONSUMPTION TAXES ##########
+
+    # Find resource allocated to consumption (consumption + consumption taxes) for each combination of 
+    # labor, productivity, assets today
+    # 4th dim: a_prime 
+    old_dims_y = ndims(y)
+    hh_consumption_plus_tax = ExpandMatrix(y, N_a)
+    savings = Vector2NDimMatrix(a_grid, old_dims_y) #a'
+
+    hh_consumption_plus_tax .-= savings;
+
+    # Disentangle consumption from consumption + consumption taxes (Feldstein specification)
+    # for one degree of consumption tax progressivity
+
+    # Initialise consumption matrix
+    hh_consumption = similar(hh_consumption_plus_tax);
+
+    # Find consumption level
+    # ALLOWING FOR CONSUMPTION SUBSIDIES THROUGH CONSUMPTION TAX 
+    # Comment the "; notax_upper = break_even" line to allow for redistributive subsidies
+    # Through consumption tax
+
+    # Set progressivity rate
+    prog_rate = Tau_c
+
+    # Find break-even point 
+    break_even = taxes.lambda_c^(1/prog_rate)
+
+    # Allowing for negative tax to better fit interpolant
+    @views hh_consumption[:, :, :, :] .= find_c_feldstein.(hh_consumption_plus_tax[:, :, :, :], taxes.lambda_c, prog_rate)
+
+    # Retrieve consumption tax - in-place to avoid costly memory allocation
+    hh_consumption_tax = hh_consumption_plus_tax .- hh_consumption;
+
+    # Correct negative consumption 
+    @views hh_consumption[hh_consumption .< 0] .= -Inf
+
+    return T_y, hh_consumption, hh_consumption_tax, hh_consumption_plus_tax
+end
+
 function compute_utility_grid(hh_consumption, l_grid, hh_parameters)
         ########## SECTION 3 - COMPUTE HOUSEHOLD UTILITY ##########
 
@@ -206,6 +276,46 @@ function compute_utility_grid(hh_consumption, l_grid, hh_parameters)
 
     return hh_utility
 end
+
+
+###############################################################################
+          ######## INTERPOLATE CONSUMPTION THROUGH A SPLINE #########
+###############################################################################
+###############################################################################
+
+# ========================================================
+# Build the interpolant: a cubic spline mapping x -> c
+# ========================================================
+
+function interp_consumption(hh_consumption, hh_consumption_plus_tax)
+    ##-----------------------------------------------------------------------##
+    # Interpolating the Feldstein relationship between consumption
+    # and total consumption expenditure, using 
+    # c + T_c(c) = k = y - T_y(y) + (1 + r)a - a'
+    # for specific combination of Tau_y and Tau_c
+    ##-----------------------------------------------------------------------##
+
+    # Compute exact solution for coarse grid through root finding
+    # _, hh_consumption, _, hh_consumption_plus_tax = compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, N_a, N_rho, N_l, w, r, Tau_y, Tau_c, taxes)
+
+    # Flatten 4D hh_consumption and hh_consumption_plus_tax into vectors:
+    x_data = vec(hh_consumption_plus_tax)
+    y_data = vec(hh_consumption)
+
+    # Sort the data by x_data:
+    perm = sortperm(x_data)
+    x_sorted = x_data[perm]
+    y_sorted = y_data[perm]
+
+    # Create the interpolant for irregular data:
+    # 1. Linear Interpolation
+    # 2. Fritsch-Carlson Monotonic Interpolation
+    @benchmark itp = interpolate((x_sorted,), y_sorted, Gridded(Linear()))
+    # itp2 = interpolate(x_sorted, y_sorted, FritschCarlsonMonotonicInterpolation()) # 4x slower
+
+    return itp
+end
+
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#

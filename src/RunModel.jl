@@ -47,18 +47,6 @@ a_grid = makeGrid(a_min, a_max, N_a)
 # Labor
 l_grid = makeGrid(l_min, l_max, N_l)
 
-# Custom labor grid
-# coarse1 = 1/25    # proportion of points in [0, 0.1]
-# dense   = 23/25   # proportion of points in [0.1, 0.5]
-# coarse2 = 1/25    # proportion of points in [0.5, 1.0]
-
-# l_grid_low   = range(0.0, stop=0.1, length=Int(coarse1*N_l))
-# l_grid_dense = range(0.1, stop=0.5, length=Int(dense*N_l+2))
-# l_grid_high  = range(0.5, stop=1.0, length=Int(coarse2*N_l))
-
-# l_grid = vcat(l_grid_low, l_grid_dense[2:end-1], l_grid_high)
-
-
 # Labor productivity - Defined in model_parameters.jl
 # rho_grid = rho_grid
 
@@ -81,31 +69,10 @@ Tau_c = Tau_y = 0.136 # Temporary TBM
 
 println("Solving budget constraint...")
 
-# Original version - including also tax progressivity rates
-# @elapsed hh_labor_taxes, hh_consumption, hh_consumption_tax, hh_utility = compute_hh_taxes_consumption_utility(a_grid, 
-#                                                                     N_a, rho_grid, l_grid, w, r, taxes, hh_parameters);
+## INTERPOLATE TO SAVE MEMORY ##
+@elapsed hh_labor_taxes, hh_consumption, hh_consumption_tax, hh_consumption_plus_tax = compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, N_a, N_rho, N_l, w, r, Tau_y, Tau_c, taxes)
 
-# Simplified version for one degree of progressivity of labor income and consumption taxes
-# @elapsed hh_labor_taxes, hh_consumption, hh_consumption_tax, hh_utility = compute_hh_taxes_consumption_utility_ME(a_grid, 
-#                                                                     N_a, rho_grid, l_grid, N_l, w, r, Tau_y, Tau_c, taxes, hh_parameters);
-
-# @benchmark compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, w, r, Tau_y, Tau_c, taxes, hh_parameters)
-
-# Split operations to save memory 
-T_y, hh_consumption = compute_consumption_grid(a_grid, rho_grid, l_grid, N_a, N_rho, N_l, w, r, Tau_y, Tau_c, taxes)
-GC.gc()
-@views hh_consumption .= compute_utility_grid(hh_consumption, l_grid, hh_parameters)
-
-# Rename for clarity 
-hh_utility = hh_consumption
-
-# Benchmark 
-@benchmark begin
-    T_y, hh_consumption = compute_consumption_grid(a_grid, rho_grid, l_grid, N_a, N_rho, N_l, w, r, Tau_y, Tau_c, taxes)
-    @views hh_consumption .= compute_utility_grid(hh_consumption, l_grid, hh_parameters)
-end
-
-@benchmark compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, N_l, w, r, Tau_y, Tau_c, taxes, hh_parameters)
+cExp2cInt = interp_consumption(hh_consumption, hh_consumption_plus_tax)
 
 #################### RANDOM CHECK - BUDGET CONSTRAINT HOLDS ###################
 

@@ -77,7 +77,7 @@ N_a          = 50          # Number of points for asset grid
 # Labor
 l_min        = 0.20         # Lower bound for labor space
 l_max        = 0.60         # Upper bound for labor space
-N_l          = 20          # Number of points for labor grid
+N_l          = 50          # Number of points for labor grid
 
 # Taxation
 # First minimal definition - TBM and vectorised
