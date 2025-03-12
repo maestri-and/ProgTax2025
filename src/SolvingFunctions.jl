@@ -17,12 +17,14 @@ using LinearAlgebra
 using Base.Threads
 using Interpolations
 using StatsBase
-
+using Dierckx
+using Optim
 
 include("Parameters.jl")
 include("Numerics.jl")
 include("Households.jl")
 include("AuxiliaryFunctions.jl")
+include("Interpolants.jl")
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
@@ -35,7 +37,7 @@ include("AuxiliaryFunctions.jl")
 #### Memory efficient version - More in-place operations + @views
 ### Memory gains: 24% 
 
-function compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, N_l, w, r, Tau_y, Tau_c, taxes, hh_parameters)
+function compute_hh_taxes_consumption_utility_ME(a_grid, rho_grid, l_grid, gpar, w, r, taxes, hh_parameters)
 
     # SECTION 1 - COMPUTE DISPOSABLE INCOME (AFTER WAGE TAX & ASSET RETURNS) #
     
@@ -43,7 +45,7 @@ function compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, 
     y = (l_grid * rho_grid') .* w 
 
     # Compute labor income taxes for one degree of labor income tax progressivity - Allowing negative tax
-    T_y = y .- taxes.lambda_y .* y .^ (1 - Tau_y);
+    T_y = y .- taxes.lambda_y .* y .^ (1 - taxes.tau_y);
 
     # Correct for negative tax
     # T_y = max.(T_y, 0)
@@ -55,7 +57,7 @@ function compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, 
     # Disposable income for each possible asset-state-specific interests yielded from t-1 
     # 3rd dim: a
     old_dims_y = ndims(y)
-    y = ExpandMatrix(y, N_a)
+    y = ExpandMatrix(y, gpar.N_a)
     gross_capital_returns = Vector2NDimMatrix((1 + r) .* a_grid, old_dims_y)
 
     y .+= gross_capital_returns;
@@ -66,7 +68,7 @@ function compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, 
     # labor, productivity, assets today
     # 4th dim: a_prime 
     old_dims_y = ndims(y)
-    hh_consumption_plus_tax = ExpandMatrix(y, N_a)
+    hh_consumption_plus_tax = ExpandMatrix(y, gpar.N_a)
     savings = Vector2NDimMatrix(a_grid, old_dims_y) #a'
 
     hh_consumption_plus_tax .-= savings;
@@ -83,7 +85,7 @@ function compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, 
     # Through consumption tax
 
     # Set progressivity rate
-    prog_rate = Tau_c
+    prog_rate = taxes.tau_c
 
     # Find break-even point 
     break_even = taxes.lambda_c^(1/prog_rate)
@@ -108,8 +110,7 @@ function compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, 
     hh_utility = similar(hh_consumption); # Pre-allocate
 
     # Compute household utility if consumption is positive
-    @threads for l in 1:N_l
-        @views hh_utility[l, :, :, :] .= ifelse.(hh_consumption[l, :, :, :] .> 0,
+    @threads for l in 1:gpar.N_l        @views hh_utility[l, :, :, :] .= ifelse.(hh_consumption[l, :, :, :] .> 0,
                                                 get_utility_hh.(hh_consumption[l, :, :, :],
                                                 l_grid[l], hh_parameters.rra, hh_parameters.phi, hh_parameters.frisch), 
                                                 hh_consumption[l, :, :, :])
@@ -123,14 +124,14 @@ end
 ###############################################################################
 
 
-function compute_consumption_grid(a_grid, rho_grid, l_grid, N_a, N_rho, N_l, w, r, Tau_y, Tau_c, taxes)
+function compute_consumption_grid(a_grid, rho_grid, l_grid, gpar, w, r, taxes)
     # SECTION 1 - COMPUTE DISPOSABLE INCOME (AFTER WAGE TAX & ASSET RETURNS) #
     
     #Compute gross labor income for each combination of labor and productivity
     y = (l_grid * rho_grid') .* w 
 
     # Compute labor income taxes for one degree of labor income tax progressivity - Allowing negative tax
-    T_y = y .- taxes.lambda_y .* y .^ (1 - Tau_y);
+    T_y = y .- taxes.lambda_y .* y .^ (1 - taxes.tau_y);
 
     # Correct for negative tax
     # T_y = max.(T_y, 0)
@@ -142,7 +143,7 @@ function compute_consumption_grid(a_grid, rho_grid, l_grid, N_a, N_rho, N_l, w, 
     # Disposable income for each possible asset-state-specific interests yielded from t-1 
     # 3rd dim: a
     old_dims_y = ndims(y)
-    y = ExpandMatrix(y, N_a)
+    y = ExpandMatrix(y, gpar.N_a)
     gross_capital_returns = Vector2NDimMatrix((1 + r) .* a_grid, old_dims_y)
 
     y .+= gross_capital_returns;
@@ -153,7 +154,7 @@ function compute_consumption_grid(a_grid, rho_grid, l_grid, N_a, N_rho, N_l, w, 
     # labor, productivity, assets today
     # 4th dim: a_prime 
     old_dims_y = ndims(y)
-    hh_consumption_plus_tax = ExpandMatrix(y, N_a)
+    hh_consumption_plus_tax = ExpandMatrix(y, gpar.N_a)
     savings = Vector2NDimMatrix(a_grid, old_dims_y) #a'
 
     hh_consumption_plus_tax .-= savings;
@@ -170,7 +171,7 @@ function compute_consumption_grid(a_grid, rho_grid, l_grid, N_a, N_rho, N_l, w, 
     # Through consumption tax
 
     # Set progressivity rate
-    prog_rate = Tau_c
+    prog_rate = taxes.tau_c
 
     # Find break-even point 
     break_even = taxes.lambda_c^(1/prog_rate)
@@ -190,20 +191,20 @@ function compute_consumption_grid(a_grid, rho_grid, l_grid, N_a, N_rho, N_l, w, 
     @views hh_consumption[hh_consumption .< 0] .= -Inf
 
     # Write to disk consumption tax matrix for later usage 
-    filename = "ConsumptionTax_l$(N_l)_a$(N_a).txt"
+    filename = "ConsumptionTax_l$(gpar.N_l)_a$(gpar.N_a).txt"
     SaveMatrix(hh_consumption_tax, "output/temp/" * filename)
     return T_y, hh_consumption
 end
 
 
-function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, N_a, N_rho, N_l, w, r, Tau_y, Tau_c, taxes)
+function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, taxes)
     # SECTION 1 - COMPUTE DISPOSABLE INCOME (AFTER WAGE TAX & ASSET RETURNS) #
     
     #Compute gross labor income for each combination of labor and productivity
     y = (l_grid * rho_grid') .* w 
 
     # Compute labor income taxes for one degree of labor income tax progressivity - Allowing negative tax
-    T_y = y .- taxes.lambda_y .* y .^ (1 - Tau_y);
+    T_y = y .- taxes.lambda_y .* y .^ (1 - taxes.tau_y);
 
     # Correct for negative tax
     # T_y = max.(T_y, 0)
@@ -215,7 +216,7 @@ function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, N_a, N_rho, 
     # Disposable income for each possible asset-state-specific interests yielded from t-1 
     # 3rd dim: a
     old_dims_y = ndims(y)
-    y = ExpandMatrix(y, N_a)
+    y = ExpandMatrix(y, gpar.N_a)
     gross_capital_returns = Vector2NDimMatrix((1 + r) .* a_grid, old_dims_y)
 
     y .+= gross_capital_returns;
@@ -226,7 +227,7 @@ function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, N_a, N_rho, 
     # labor, productivity, assets today
     # 4th dim: a_prime 
     old_dims_y = ndims(y)
-    hh_consumption_plus_tax = ExpandMatrix(y, N_a)
+    hh_consumption_plus_tax = ExpandMatrix(y, gpar.N_a)
     savings = Vector2NDimMatrix(a_grid, old_dims_y) #a'
 
     hh_consumption_plus_tax .-= savings;
@@ -243,13 +244,15 @@ function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, N_a, N_rho, 
     # Through consumption tax
 
     # Set progressivity rate
-    prog_rate = Tau_c
+    prog_rate = taxes.tau_c
 
     # Find break-even point 
     break_even = taxes.lambda_c^(1/prog_rate)
 
     # Allowing for negative tax to better fit interpolant
-    @views hh_consumption[:, :, :, :] .= find_c_feldstein.(hh_consumption_plus_tax[:, :, :, :], taxes.lambda_c, prog_rate)
+    @views hh_consumption[:, :, :, :] .= find_c_feldstein.(hh_consumption_plus_tax[:, :, :, :], taxes.lambda_c, prog_rate;
+    notax_upper = break_even
+    )
 
     # Retrieve consumption tax - in-place to avoid costly memory allocation
     hh_consumption_tax = hh_consumption_plus_tax .- hh_consumption;
@@ -260,60 +263,23 @@ function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, N_a, N_rho, 
     return T_y, hh_consumption, hh_consumption_tax, hh_consumption_plus_tax
 end
 
-function compute_utility_grid(hh_consumption, l_grid, hh_parameters)
+function compute_utility_grid(hh_consumption, l_grid, hh_parameters; minus_inf = true)
         ########## SECTION 3 - COMPUTE HOUSEHOLD UTILITY ##########
 
     # Compute households utility
     hh_utility = similar(hh_consumption); # Pre-allocate
 
     # Compute household utility if consumption is positive
-    @threads for l in 1:N_l
-        @views hh_utility[l, :, :, :] .= ifelse.(hh_consumption[l, :, :, :] .> 0,
+    @threads for l in 1:gpar.N_l        @views hh_utility[l, :, :, :] .= ifelse.(hh_consumption[l, :, :, :] .> 0,
                                                 get_utility_hh.(hh_consumption[l, :, :, :],
                                                 l_grid[l], hh_parameters.rra, hh_parameters.phi, hh_parameters.frisch), 
                                                 hh_consumption[l, :, :, :])
     end
 
+    if !minus_inf 
+        hh_utility[hh_utility .== -Inf] .= minimum(hh_utility[hh_utility .!= -Inf]) - 1
+    end
     return hh_utility
-end
-
-
-###############################################################################
-          ######## INTERPOLATE CONSUMPTION THROUGH A SPLINE #########
-###############################################################################
-###############################################################################
-
-# ========================================================
-# Build the interpolant: a cubic spline mapping x -> c
-# ========================================================
-
-function interp_consumption(hh_consumption, hh_consumption_plus_tax)
-    ##-----------------------------------------------------------------------##
-    # Interpolating the Feldstein relationship between consumption
-    # and total consumption expenditure, using 
-    # c + T_c(c) = k = y - T_y(y) + (1 + r)a - a'
-    # for specific combination of Tau_y and Tau_c
-    ##-----------------------------------------------------------------------##
-
-    # Compute exact solution for coarse grid through root finding
-    # _, hh_consumption, _, hh_consumption_plus_tax = compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, N_a, N_rho, N_l, w, r, Tau_y, Tau_c, taxes)
-
-    # Flatten 4D hh_consumption and hh_consumption_plus_tax into vectors:
-    x_data = vec(hh_consumption_plus_tax)
-    y_data = vec(hh_consumption)
-
-    # Sort the data by x_data:
-    perm = sortperm(x_data)
-    x_sorted = x_data[perm]
-    y_sorted = y_data[perm]
-
-    # Create the interpolant for irregular data:
-    # 1. Linear Interpolation
-    # 2. Fritsch-Carlson Monotonic Interpolation
-    @benchmark itp = interpolate((x_sorted,), y_sorted, Gridded(Linear()))
-    # itp2 = interpolate(x_sorted, y_sorted, FritschCarlsonMonotonicInterpolation()) # 4x slower
-
-    return itp
 end
 
 
@@ -332,25 +298,25 @@ end
 # Speed 176.096 s
 # Memory 126.66 GB
 
-function standardVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho)
+function standardVFI(gpar, comp_params, hh_parameters, hh_utility, pi_rho)
     # Initialize the state-dependent value function guess (over rho and a)
-    V_guess = zeros(N_rho, N_a)
+    V_guess = zeros(gpar.N_rho, gpar.N_a)
     
     # Preallocate the policy arrays for asset and labor (both 2-D: (rho, a))
-    policy_a_index = zeros(Int64, N_rho, N_a)
-    policy_l_index = zeros(Int64, N_rho, N_a)
+    policy_a_index = zeros(Int64, gpar.N_rho, gpar.N_a)
+    policy_l_index = zeros(Int64, gpar.N_rho, gpar.N_a)
     
     # Preallocate candidate arrays for each labor option.
-    candidate = zeros(N_rho, N_a, N_a)
+    candidate = zeros(gpar.N_rho, gpar.N_a, gpar.N_a)
     # V_candidate will hold the value (after optimizing over a') for each labor option.
-    V_candidate = zeros(N_l, N_rho, N_a)
-    asset_policy_candidate = zeros(Int64, N_l, N_rho, N_a)
+    V_candidate = zeros(gpar.N_l, gpar.N_rho, gpar.N_a)
+    asset_policy_candidate = zeros(Int64, gpar.N_l, gpar.N_rho, gpar.N_a)
     
     # Preallocate a new state-value function for the iteration.
     V_new = similar(V_guess)
 
     # Continuation value
-    cont = zeros(N_rho, N_a)
+    cont = zeros(gpar.N_rho, gpar.N_a)
     
     for iter in 1:comp_params.vfi_max_iter
         # --- Step 1: Compute the continuation value for every state ---
@@ -362,15 +328,12 @@ function standardVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi
         #   candidate(l, rho, a, j) = hh_utility(l, rho, a, j) + beta * cont[rho, j]
         # We need to maximize over j (next asset choices) for each (rho, a).
         # Loop over labor options; the remaining maximization will be vectorized over (rho, a).
-        for l in 1:N_l
-            # hh_utility[l, :, :, :] has shape (N_rho, N_a, N_a)
+        for l in 1:gpar.N_l            # hh_utility[l, :, :, :] has shape (N_rho, N_a, N_a)
             # Reshape cont to (N_rho, 1, N_a) so it broadcasts along the a dimension.
-            candidate .= hh_utility[l, :, :, :] .+ hh_parameters.beta .* reshape(cont, (N_rho, 1, N_a))
+            candidate .= hh_utility[l, :, :, :] .+ hh_parameters.beta .* reshape(cont, (gpar.N_rho, 1, gpar.N_a))
             # For each current state (rho, a), maximize over the last dimension (j).
             # We'll loop over (rho, a) to extract both max values and argmax indices.
-            for rho in 1:N_rho
-                for a in 1:N_a
-                    # findmax returns (max_value, index) for candidate[l, rho, a, :]
+            for rho in 1:gpar.N_rho                for a in 1:gpar.N_a                    # findmax returns (max_value, index) for candidate[l, rho, a, :]
                     value, idx = findmax(candidate[rho, a, :])
                     V_candidate[l, rho, a] = value
                     asset_policy_candidate[l, rho, a] = idx
@@ -380,9 +343,7 @@ function standardVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi
         
         # --- Step 3: Collapse the labor dimension ---
         # For each state (rho, a), choose the labor option that gives the highest candidate value.
-        for rho in 1:N_rho
-            for a in 1:N_a
-                value, labor_opt = findmax(V_candidate[:, rho, a])
+        for rho in 1:gpar.N_rho            for a in 1:gpar.N_a                value, labor_opt = findmax(V_candidate[:, rho, a])
                 V_new[rho, a] = value
                 policy_l_index[rho, a] = labor_opt
                 policy_a_index[rho, a] = asset_policy_candidate[labor_opt, rho, a]
@@ -411,29 +372,29 @@ end
 # Speed 158.803 s
 # Memory 63.25 GB
 
-function MemoryEffVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho; V_guess_read = nothing)
+function MemoryEffVFI(gpar, comp_params, hh_parameters, hh_utility, pi_rho; V_guess_read = nothing)
     if isnothing(V_guess_read) 
         # Initialize the state-dependent value function guess (over ρ and a)
-        V_guess = zeros(N_rho, N_a)
+        V_guess = zeros(gpar.N_rho, gpar.N_a)
     else
         V_guess = V_guess_read 
     end
     
     # Preallocate the policy arrays (for state (ρ, a))
-    policy_a_index = zeros(Int64, N_rho, N_a)
-    policy_l_index = zeros(Int64, N_rho, N_a)
+    policy_a_index = zeros(Int64, gpar.N_rho, gpar.N_a)
+    policy_l_index = zeros(Int64, gpar.N_rho, gpar.N_a)
     
     # Preallocate candidate arrays (per labor option)
-    candidate = zeros(N_rho, N_a, N_a)
+    candidate = zeros(gpar.N_rho, gpar.N_a, gpar.N_a)
     # V_candidate[l, ρ, a] = optimal value for labor option l at state (ρ,a)
-    V_candidate = zeros(N_l, N_rho, N_a)
+    V_candidate = zeros(gpar.N_l, gpar.N_rho, gpar.N_a)
     # asset_policy_candidate[l, ρ, a] stores the argmax over next-assets for that labor option.
-    asset_policy_candidate = zeros(Int64, N_l, N_rho, N_a)
+    asset_policy_candidate = zeros(Int64, gpar.N_l, gpar.N_rho, gpar.N_a)
 
     # Continuation value
-    cont = zeros(N_rho, 1, N_a)
-    max_vals    = zeros(N_rho, N_a)
-    argmax_vals = zeros(N_rho, N_a)
+    cont = zeros(gpar.N_rho, 1, gpar.N_a)
+    max_vals    = zeros(gpar.N_rho, gpar.N_a)
+    argmax_vals = zeros(gpar.N_rho, gpar.N_a)
     
     # Preallocate the new state value function
     V_new = similar(V_guess)
@@ -441,13 +402,12 @@ function MemoryEffVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, p
     for iter in 1:comp_params.vfi_max_iter
         # --- Step 1: Compute continuation value ---
         # cont[ρ, j] = Σ_{ρ'} π(ρ,ρ') V_guess(ρ', j)
-        cont .= reshape(pi_rho * V_guess, (N_rho, 1, N_a))  # (N_rho, N_a) but reshaped for computation
+        cont .= reshape(pi_rho * V_guess, (gpar.N_rho, 1, gpar.N_a))  # (N_rho, N_a) but reshaped for computation
         
         # --- Step 2: For each labor option, compute candidate value functions ---
         # For each labor option l, hh_utility[l, :, :, :] has shape (N_rho, N_a, N_a),
         # and we add beta*cont (reshaped to (N_rho,1,N_a)) along the asset-choice dimension.
-        @inbounds for l in 1:N_l
-            @views candidate .= hh_utility[l, :, :, :] .+ hh_parameters.beta .* cont
+        @inbounds for l in 1:gpar.N_l            @views candidate .= hh_utility[l, :, :, :] .+ hh_parameters.beta .* cont
             # candidate now has shape (N_rho, N_a, N_a), where the 3rd dimension indexes next assets.
             # Vectorize the maximization over next assets:
             V_candidate[l, :, :] .= dropdims(maximum(candidate, dims=3), dims=3)
@@ -465,7 +425,7 @@ function MemoryEffVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, p
 
         # Extract the asset policy corresponding to the optimal labor choice.
         # Option 1: Pure vectorized comprehension:
-        policy_a_index .= [asset_policy_candidate[policy_l_index[i,j], i, j] for i in 1:N_rho, j in 1:N_a]
+        policy_a_index .= [asset_policy_candidate[policy_l_index[i,j], i, j] for i in 1:gpar.N_rho, j in 1:gpar.N_a]
 
         # Option 2: Parallelized version using Threads:
         # Uncomment the following block if you want to parallelize:
@@ -486,4 +446,145 @@ function MemoryEffVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, p
     end
     
     return V_new, policy_a_index, policy_l_index
+end
+
+############################## INTERPOLATED VFI ###############################
+
+
+function intVFI(hh_consumption, l_grid, rho_grid, a_grid, hh_parameters, comp_params, 
+    pi_rho, g_par)
+    # Initialize the state-dependent value function guess (over ρ and a)
+    V_guess = zeros(gpar.N_rho, gpar.N_a)
+
+    # Preallocate the policy arrays (for state (ρ, a))
+    policy_a = zeros(Float64, gpar.N_rho, gpar.N_a)
+    policy_l = zeros(Float64, gpar.N_rho, gpar.N_a)
+    
+    # # V_candidate[l, ρ, a] = optimal value for labor option l at state (ρ,a)
+    Vcand = zeros(gpar.N_l, gpar.N_rho, gpar.N_a)
+    policy_a_opt = zeros(gpar.N_l, gpar.N_rho, gpar.N_a)
+
+    # # Continuation value
+    cont = zeros(gpar.N_rho, gpar.N_a)
+    
+    # Preallocate the new state value function
+    V_new = similar(V_guess)
+
+    # Create interpolant for household utility
+    hh_utility = compute_utility_grid(hh_consumption, l_grid, hh_parameters; minus_inf = false)
+    # Replace -Inf with large negative values to ensure smoothness of interpolation
+    # itp_utility = extrapolate(interpolate((l_grid, rho_grid, a_grid, a_grid), hh_utility, Gridded(Linear())), Interpolations.Flat())
+    # utility_interp = (l, rho, a, a_prime) -> itp_utility(l, rho, a, a_prime)
+      
+
+    for iter in 1:comp_params.vfi_max_iter
+        # --- Step 1: Interpolate continuation value ---
+        itp_cont, cont_interp = interp_cont_value(V_guess, pi_rho, rho_grid, a_grid)
+
+        # --- Step 2: For each labor option, compute candidate value functions ---
+        # For each labor option l, maximise the interpolated objective function
+        @inbounds for l in 1:gpar.N_l            
+            for rho in 1:gpar.N_rho                
+                for a in 1:gpar.N_a                    
+                    # Interpolate utility for given l, rho and a
+                    utility_interp = extrapolate(interpolate((a_grid,), hh_utility[l, rho, a, :], Gridded(Linear())), Line())
+                    # utility_interp = Spline1D(a_prime_values, hh_utility[l, rho, a, :], k=3) # Dierckx - jump issues!
+                    
+
+                    # plot_interpolation(a_grid, hh_utility[l, rho, a, :], utility_interp, x_max=2.5)
+                    # Define objective function to maximise
+                    objective = a_prime -> -(utility_interp(a_prime) + hh_parameters.beta * cont_interp(a_prime, rho))
+
+                    # Optimize
+                    result = optimize(objective, gpar.a_min, gpar.a_max, Brent()) #TBM - Check Brent()
+                        
+                    # Store the candidate value for this labor option.
+                    @views Vcand[l, rho, a] =  -Optim.minimum(result)
+                    # Also store the optimal a' for this labor option.
+                    @views policy_a_opt[l, rho, a] = Optim.minimizer(result) 
+                end
+            end
+        end
+        
+        # --- Step 3: Interpolate Over Labor (for each (ρ, a)) ---
+        # Vcand_interp = Dict()        # Store splines per V(ρ, a)
+        # policy_a_interp = Dict()     # Store splines for policy_a_opt
+        # Vcand_interp = Dict{Tuple{Int, Int}, Spline1D}()
+        # policy_a_interp = Dict{Tuple{Int, Int}, Spline1D}()
+
+
+        # # Construct cubic splines over l for each (ρ, a) pair
+        # @inbounds for rho in 1:gpar.N_rho            
+        #     for a in 1:gpar.N_a                
+        #         Vcand_interp[(rho, a)] = Spline1D(l_grid, Vcand[:, rho, a], k=3)
+        #         policy_a_interp[(rho, a)] = Spline1D(l_grid, policy_a_opt[:, rho, a], k=3)
+        #     end
+        # end
+
+        # --- Step 3: Interpolate Over Labor (for each (ρ, a)) ---
+        Vcand_interp = Dict{Tuple{Int, Int}, Any}()  # Store linear interpolators per V(ρ, a)
+        policy_a_interp = Dict{Tuple{Int, Int}, Any}()  # Store linear interpolators for policy_a_opt
+
+        # Construct linear interpolations over l for each (ρ, a) pair
+        @inbounds for rho in 1:gpar.N_rho            
+            for a in 1:gpar.N_a
+                # Linear interpolation for Vcand
+                Vcand_interp[(rho, a)] = extrapolate(interpolate((l_grid,), Vcand[:, rho, a], Gridded(Linear())), Line())
+
+                # Linear interpolation for policy_a_opt
+                policy_a_interp[(rho, a)] = extrapolate(interpolate((l_grid,), policy_a_opt[:, rho, a], Gridded(Linear())), Line())
+            end
+        end
+        
+        # # Retrieve the interpolator for policy function
+        # rho_val, a_val = 3, 20
+        # policy_interp = policy_a_interp[(rho_val, a_val)]
+
+        # # Generate a finer grid for labor values
+        # fine_l_grid = range(minimum(l_grid), maximum(l_grid), length=200)  # More points for smooth curve
+        # interp_values = policy_interp.(fine_l_grid)  # Evaluate interpolation
+
+        # # Plot original data points
+        # scatter(l_grid, policy_a_opt[:, rho_val, a_val], markersize=4, color=:red, label="Original Data")
+
+        # # Plot interpolated spline
+        # plot!(fine_l_grid, interp_values, linewidth=2, color=:blue, label="Cubic Spline Interpolation", legend=false)
+
+        # # Titles and labels
+        # title!("Interpolated Policy Function (ρ=$rho_val, a=$a_val)")
+        # xlabel!("Labor Grid (l)")
+        # ylabel!("Policy a'")
+
+        # --- Step 4: Solve for Optimal Labor Choice ---
+        @inbounds for rho in 1:gpar.N_rho            
+            for a in 1:gpar.N_a                
+                # Define the objective function to maximize over labor
+                obj_l = l -> -Vcand_interp[(rho, a)](l)  # Interpolate Vcand over l
+
+                # Optimize labor choice in [l_min, l_max]
+                res_l = optimize(obj_l, gpar.l_min, gpar.l_max, Brent())
+
+                # Store optimal labor choice (continuous)
+                policy_l[rho, a] = Optim.minimizer(res_l)
+
+                # Compute corresponding optimal asset choice
+                l_star = policy_l[rho, a]
+                policy_a[rho, a] = policy_a_interp[(rho, a)](l_star)
+
+                # Store updated value function
+                V_new[rho, a] = -Optim.minimum(res_l)
+            end
+        end
+
+        # --- Step 4: Check convergence ---
+        if maximum(abs.(V_new .- V_guess)) < comp_params.vfi_tol
+            println("Converged after $iter iterations")
+            break
+        end
+        
+        # Otherwise, update the guess.
+        V_guess .= V_new
+    end
+    
+    return V_new, policy_a, policy_l
 end

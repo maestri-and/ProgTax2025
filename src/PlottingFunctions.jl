@@ -8,6 +8,7 @@
 
 
 using StatsBase
+using Plots
 
 ############################## PRELIMINARY PLOTS ##############################
 
@@ -76,27 +77,6 @@ function plot_taxes_vs_base(base_vec, tax_vec; base_range=nothing)
 end
 
 plot_taxes_vs_base(vec(hh_consumption), vec(hh_consumption_tax))
-
-    df = DataFrame(
-    consumption = vec(hh_consumption[:, :, :, :, :, 2]), 
-    consumption_tax = vec(hh_consumption_tax[:, :, :, :])
-)
-
-df_small = df[(df.consumption .< 0.4) .& (df.consumption .> -0.0), :]
-
-scatter(df.consumption[1:10000], df.consumption_tax[1:10000], 
-    xlabel="Consumption", ylabel="Consumption Tax", 
-    title="Consumption vs. Consumption Tax", legend=false)
-
-# Plot consumption vs consumption tax
-p = scatter(df_small.consumption, df_small.consumption_tax, 
-    xlabel="Consumption", ylabel="Consumption Tax", 
-    title="Consumption vs. Consumption Tax \n Small-Argument Adjusted Feldstein", legend=false, markercolor=:red)
-
-hline!([0], linestyle=:dash, color=:black, lw=2, label="c = 0")
-
-
-
 
 # function plot_itp_vs_data(itp, x_data, y_data; x_range = nothing, y_range = nothing)
 #     if x_range

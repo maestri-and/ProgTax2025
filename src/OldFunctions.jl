@@ -55,6 +55,16 @@
 
 # @benchmark compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, N_l, w, r, Tau_y, Tau_c, taxes, hh_parameters)
 
+#---------------------# PERFORM VFI - VECTORISED VERSION #--------------------#
+
+# @elapsed V_new, policy_a_index, policy_l_index = standardVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho)
+#@benchmark standardVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho)
+
+# @elapsed V_new, policy_a_index, policy_l_index = MemoryEffVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho;
+#                         # V_guess_read = ReadMatrix("output/preliminary/V_guess_matrix.txt")
+#                         )
+# @benchmark MemoryEffVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho)
+
 
 
 ###### COMPUTING CONSUMPTION, TAXES AND UTILITY ######
@@ -140,8 +150,7 @@ function compute_hh_taxes_consumption_utility_full(a_grid, N_a, rho_grid, l_grid
     hh_utility = copy(hh_consumption); # Pre-allocate
 
     # Compute household utility if consumption is positive
-    @threads for l in 1:N_l
-        hh_utility[l, :, :, :, :, :] .= ifelse.(hh_consumption[l, :, :, :, :, :] .> 0,
+    @threads for l in 1:gpar.N_l        hh_utility[l, :, :, :, :, :] .= ifelse.(hh_consumption[l, :, :, :, :, :] .> 0,
                                                 get_utility_hh.(hh_consumption[l, :, :, :, :, :],
                                                 l_grid[l], hh_parameters.rra, hh_parameters.phi, hh_parameters.frisch), 
                                                 hh_utility[l, :, :, :, :, :])

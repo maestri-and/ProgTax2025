@@ -28,6 +28,13 @@ function total_tax_hh(consumption_tax_hh, wage_tax_hh)
     return total_tax = consumption_tax_hh + wage_tax_hh
 end
 
+# Compute optimal labor - from analytical solution 
+function get_opt_labor(rho, w, taxes, labor_disutility, rra, frisch)
+    l_star = ((taxes.lambda_y * (1 - taxes.tau_y) * (rho * w)^(1 - taxes.tau_y)) / #Numerator
+             (2 - taxes.lambda_c * (1 - taxes.tau_c) * c ^ (-taxes.tau_c) * labor_disutility * c^rra) #Denominator
+             ) ^ (1 / (frisch + taxes.tau_y)) # Exponent
 
+    return l_star
+end
 
 

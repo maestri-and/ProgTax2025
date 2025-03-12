@@ -28,10 +28,10 @@ function test_budget_constraint()
     println("Test #1: Testing that budget constraint holds...")
 
     # Pick two random initial states 
-    rand_a_i = rand(1:N_a)
-    rand_rho_i = rand(1:N_rho)
-    rand_l_i = rand(1:N_l)
-    rand_a_prime_i = rand(1:N_a)
+    rand_a_i = rand(1:gpar.N_a)
+    rand_rho_i = rand(1:gpar.N_rho)
+    rand_l_i = rand(1:gpar.N_l)
+    rand_a_prime_i = rand(1:gpar.N_a)
 
     rand_a = a_grid[rand_a_i]
     rand_rho = rho_grid[rand_rho_i]
@@ -88,8 +88,8 @@ function test_optimal_budget_constraint()
     println("Test #1: Testing that budget constraint holds...")
 
     # Pick two random initial states 
-    rand_a_i = rand(1:N_a)
-    rand_rho_i = rand(1:N_rho)
+    rand_a_i = rand(1:gpar.N_a)
+    rand_rho_i = rand(1:gpar.N_rho)
 
     rand_a = a_grid[rand_a_i]
     rand_rho = rho_grid[rand_rho_i]
@@ -176,8 +176,74 @@ end
 # benchmark_and_save("benchmark_output.txt", 1000)
 
 ###############################################################################
+############################ INTERPOLATION TESTING ############################
+###############################################################################
+
+
+function evaluate_interpolation(data_points, interpolator, fixed_indices; figure=true)
+    """
+    Evaluates the interpolation accuracy for an arbitrary number of dimensions.
+
+    Arguments:
+    - data_points: A multi-dimensional array containing the true function values.
+    - interpolator: A function that takes free variables and returns interpolated values.
+    - fixed_indices: A tuple specifying which indices to fix in data_points (for slicing).
+    - figure (optional, default=true): If true, plots a heatmap of absolute errors.
+
+    Returns:
+    - Prints max/mean absolute and relative errors.
+    - Displays a heatmap if `figure=true` (only for 2D free variables).
+    """
+    
+    # Convert fixed indices to integers (ensure valid indexing)
+    fixed_indices = Tuple(round(Int, i) for i in fixed_indices)
+
+    # Determine dimensions and slice fixed indices
+    num_dims = ndims(data_points)
+    free_dims = setdiff(1:num_dims, keys(fixed_indices))  # Free dimensions
+
+    # Extract relevant grid sizes
+    free_sizes = size(data_points)[free_dims]  # Sizes of free dimensions
+
+    # Generate grid points (assuming a uniform grid from 1 to size in each free dim)
+    free_grids = [collect(1:size) for size in free_sizes]
+
+    # Create iterator over all free variable combinations
+    grid_combinations = Iterators.product(free_grids...)
+
+    # Compute interpolated values
+    interpolated_values = [interpolator([fixed_indices..., free...]) for free in grid_combinations]
+
+    # Reshape to match original grid structure
+    interpolated_values = reshape(interpolated_values, free_sizes...)
+
+    # Extract true values from data at fixed indices
+    true_values = data_points[fixed_indices..., :, :]
+
+    # Compute absolute and relative errors
+    abs_errors = abs.(interpolated_values .- true_values)
+    max_abs_error, mean_abs_error = maximum(abs_errors), mean(abs_errors)
+
+    rel_errors = abs_errors ./ max.(abs.(true_values), 1e-10)  # Avoid division by zero
+    max_rel_error, mean_rel_error = maximum(rel_errors), mean(rel_errors)
+
+    # Print error metrics
+    println("Max Absolute Error: ", max_abs_error)
+    println("Mean Absolute Error: ", mean_abs_error)
+    println("Max Relative Error: ", max_rel_error)
+    println("Mean Relative Error: ", mean_rel_error)
+
+    # Plot heatmap if 2D free variables (i.e., last two dimensions vary)
+    if figure && length(free_dims) == 2
+        heatmap(free_grids[1], free_grids[2], abs_errors, title="Interpolation Absolute Errors",
+                xlabel="Dimension $(free_dims[1])", ylabel="Dimension $(free_dims[2])", colorbar_title="Error")
+    end
+end
+
+###############################################################################
 ################################# OTHER TESTS #################################
 ###############################################################################
+
 
 # Plotting dummy 3D utility function 
 
@@ -224,7 +290,7 @@ function plot_utility_with_bc(rra, phi, frisch; a_i = 10, a_prime_i = 10, rho_i 
 
     # Compute household taxes, consumption, and utility
     @elapsed _, hh_consumption, _, hh_utility = compute_hh_taxes_consumption_utility_(a_grid,
-                                                                    N_a, rho_grid, l_values, w, r, Tau_y, Tau_c, taxes, hh_parameters)
+                                                                    gpar.N_a, rho_grid, l_values, w, r, taxes, hh_parameters)
 
     # Fix one level of a and a'
     c_values = hh_consumption[:, rho_i, a_i, a_prime_i]
