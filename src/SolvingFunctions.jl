@@ -53,12 +53,12 @@ function compute_hh_taxes_consumption_utility_ME(a_grid, rho_grid, l_grid, gpar,
     # Compute net labor income
     y .-= T_y
 
-    # Compute disposable income after asset transfers (gross capital returns (1+r)a)
+    # Compute disposable income after asset transfers (net capital returns (1+(1 - tau_k)r)a)
     # Disposable income for each possible asset-state-specific interests yielded from t-1 
     # 3rd dim: a
     old_dims_y = ndims(y)
     y = ExpandMatrix(y, gpar.N_a)
-    gross_capital_returns = Vector2NDimMatrix((1 + r) .* a_grid, old_dims_y)
+    gross_capital_returns = Vector2NDimMatrix((1 + (1 - taxes.tau_k)r) .* a_grid, old_dims_y)
 
     y .+= gross_capital_returns;
 
@@ -92,7 +92,7 @@ function compute_hh_taxes_consumption_utility_ME(a_grid, rho_grid, l_grid, gpar,
 
     # To allow for redistributive subsidies remove the notax_upper argument from the function
     @views hh_consumption[:, :, :, :] .= find_c_feldstein.(hh_consumption_plus_tax[:, :, :, :], taxes.lambda_c, prog_rate
-    ; notax_upper = break_even
+    ; # notax_upper = break_even
     )
 
     # Retrieve consumption tax - in-place to avoid costly memory allocation
@@ -144,7 +144,7 @@ function compute_consumption_grid(a_grid, rho_grid, l_grid, gpar, w, r, taxes)
     # 3rd dim: a
     old_dims_y = ndims(y)
     y = ExpandMatrix(y, gpar.N_a)
-    gross_capital_returns = Vector2NDimMatrix((1 + r) .* a_grid, old_dims_y)
+    gross_capital_returns = Vector2NDimMatrix((1 + (1 - taxes.tau_k)r) .* a_grid, old_dims_y)
 
     y .+= gross_capital_returns;
 
@@ -178,7 +178,7 @@ function compute_consumption_grid(a_grid, rho_grid, l_grid, gpar, w, r, taxes)
 
     # To allow for redistributive subsidies remove the notax_upper argument from the function
     @views hh_consumption[:, :, :, :] .= find_c_feldstein.(hh_consumption_plus_tax[:, :, :, :], taxes.lambda_c, prog_rate
-    ; notax_upper = break_even
+    ; # notax_upper = break_even
     )
 
     # Retrieve consumption tax - in-place to avoid costly memory allocation
@@ -197,7 +197,7 @@ function compute_consumption_grid(a_grid, rho_grid, l_grid, gpar, w, r, taxes)
 end
 
 
-function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, taxes)
+function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, taxes; replace_neg_consumption = false)
     # SECTION 1 - COMPUTE DISPOSABLE INCOME (AFTER WAGE TAX & ASSET RETURNS) #
     
     #Compute gross labor income for each combination of labor and productivity
@@ -217,7 +217,7 @@ function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, 
     # 3rd dim: a
     old_dims_y = ndims(y)
     y = ExpandMatrix(y, gpar.N_a)
-    gross_capital_returns = Vector2NDimMatrix((1 + r) .* a_grid, old_dims_y)
+    gross_capital_returns = Vector2NDimMatrix((1 + (1 - taxes.tau_k)r) .* a_grid, old_dims_y)
 
     y .+= gross_capital_returns;
 
@@ -251,14 +251,16 @@ function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, 
 
     # Allowing for negative tax to better fit interpolant
     @views hh_consumption[:, :, :, :] .= find_c_feldstein.(hh_consumption_plus_tax[:, :, :, :], taxes.lambda_c, prog_rate;
-    notax_upper = break_even
+    notax_upper = 0 # break_even - # use to leave negative consumption
     )
 
     # Retrieve consumption tax - in-place to avoid costly memory allocation
     hh_consumption_tax = hh_consumption_plus_tax .- hh_consumption;
 
     # Correct negative consumption 
-    @views hh_consumption[hh_consumption .< 0] .= -Inf
+    if replace_neg_consumption == true
+        @views hh_consumption[hh_consumption .< 0] .= -Inf
+    end
 
     return T_y, hh_consumption, hh_consumption_tax, hh_consumption_plus_tax
 end
@@ -270,10 +272,11 @@ function compute_utility_grid(hh_consumption, l_grid, hh_parameters; minus_inf =
     hh_utility = similar(hh_consumption); # Pre-allocate
 
     # Compute household utility if consumption is positive
-    @threads for l in 1:gpar.N_l        @views hh_utility[l, :, :, :] .= ifelse.(hh_consumption[l, :, :, :] .> 0,
+    @threads for l in 1:gpar.N_l        
+        @views hh_utility[l, :, :, :] .= ifelse.(hh_consumption[l, :, :, :] .> 0,
                                                 get_utility_hh.(hh_consumption[l, :, :, :],
                                                 l_grid[l], hh_parameters.rra, hh_parameters.phi, hh_parameters.frisch), 
-                                                hh_consumption[l, :, :, :])
+                                                -Inf)
     end
 
     if !minus_inf 
@@ -450,6 +453,50 @@ end
 
 ############################## INTERPOLATED VFI ###############################
 
+function find_opt_cons_labor(rho_grid, a_grid, rho, w, net_r, taxes, hh_parameters, gpar)
+    # Create matrices for optimal consumption and optimal labor
+    opt_consumption = zeros(gpar.N_rho, gpar.N_a, gpar.N_a)
+    opt_labor = zeros(gpar.N_rho, gpar.N_a, gpar.N_a)
+
+    #Pre-allocate vars
+    rho = 0
+    rhs = 0 
+
+    for rho_i in 1:gpar.N_rho
+        # Get rho from the grid
+        rho = rho_grid[rho_i]
+    
+        # Define the wage as a function of c using the labor supply function
+        wage_star(c) = rho * w * get_opt_labor_from_FOC(c, rho, w, taxes, hh_parameters)
+    
+        for a_i in 1:gpar.N_a
+            for a_prime_i in 1:gpar.N_a
+                # Compute saving returns + saving expenditure (rhs)
+                rhs = (1 + net_r) * a_grid[a_i] - a_grid[a_prime_i]
+    
+                # Define the objective function to solve for optimal consumption (c)
+                f = c -> 2 * c - taxes.lambda_c * c^(1 - taxes.tau_c) - wage_star(c) - rhs
+    
+                try
+                    # Find solution, if any
+                    @views opt_consumption[rho_i, a_i, a_prime_i] = find_zero(f, 0.5) #0.5 Initial guess, adjustable
+                    # Get optimal labor
+                    @views opt_labor[rho_i, a_i, a_prime_i] = get_opt_labor_from_FOC(opt_c, rho, w, taxes, hh_parameters)
+                catch e
+                    if isa(e, DomainError)
+                        # Handle DomainError by returning -Inf
+                        @views opt_consumption[rho_i, a_i, a_prime_i] = -Inf
+                        @views opt_labor[rho_i, a_i, a_prime_i] = -Inf
+                    else
+                        # Rethrow other exceptions
+                        throw(e)
+                    end
+                end
+            end
+        end
+    end
+    return opt_consumption, opt_labor
+end
 
 function intVFI(hh_consumption, l_grid, rho_grid, a_grid, hh_parameters, comp_params, 
     pi_rho, g_par)
@@ -469,13 +516,12 @@ function intVFI(hh_consumption, l_grid, rho_grid, a_grid, hh_parameters, comp_pa
     
     # Preallocate the new state value function
     V_new = similar(V_guess)
-
+    
     # Create interpolant for household utility
-    hh_utility = compute_utility_grid(hh_consumption, l_grid, hh_parameters; minus_inf = false)
+    hh_utility = compute_utility_grid(hh_consumption, l_grid, hh_parameters; minus_inf = true)
     # Replace -Inf with large negative values to ensure smoothness of interpolation
     # itp_utility = extrapolate(interpolate((l_grid, rho_grid, a_grid, a_grid), hh_utility, Gridded(Linear())), Interpolations.Flat())
     # utility_interp = (l, rho, a, a_prime) -> itp_utility(l, rho, a, a_prime)
-      
 
     for iter in 1:comp_params.vfi_max_iter
         # --- Step 1: Interpolate continuation value ---
@@ -487,21 +533,41 @@ function intVFI(hh_consumption, l_grid, rho_grid, a_grid, hh_parameters, comp_pa
             for rho in 1:gpar.N_rho                
                 for a in 1:gpar.N_a                    
                     # Interpolate utility for given l, rho and a
-                    utility_interp = extrapolate(interpolate((a_grid,), hh_utility[l, rho, a, :], Gridded(Linear())), Line())
-                    # utility_interp = Spline1D(a_prime_values, hh_utility[l, rho, a, :], k=3) # Dierckx - jump issues!
-                    
+                    # utility_interp = extrapolate(interpolate((a_grid,), hh_utility[l, rho, a, :], Gridded(Linear())), Interpolations.Flat())
+                    # try
+                    utility_interp, max_a_prime = piecewise_1D_interpolation(a_grid, hh_utility[l, rho, a, :]; 
+                                                                             spline = false, return_threshold = true)
+                    # try
+                    # utility_interp, max_a_prime = piecewise_1D_interpolation(a_grid, hh_utility[l, rho, a, :]; 
+                    #                                                             spline=false, return_threshold=true)
+                    # catch e
+                    #     println("Error encountered at indices: l = ", l, ", rho = ", rho, ", a = ", a)
+                    #     println("Error message: ", e)
+                    #     rethrow()  # Optional: Rethrow the error to stop execution, or remove if you want it to continue
+                    # end
 
                     # plot_interpolation(a_grid, hh_utility[l, rho, a, :], utility_interp, x_max=2.5)
                     # Define objective function to maximise
                     objective = a_prime -> -(utility_interp(a_prime) + hh_parameters.beta * cont_interp(a_prime, rho))
 
-                    # Optimize
-                    result = optimize(objective, gpar.a_min, gpar.a_max, Brent()) #TBM - Check Brent()
-                        
+                    # Optimize - Restrict search to feasible points to ensure finding right solution
+                    result = optimize(objective, gpar.a_min, max_a_prime, Brent()) #TBM - Check Brent()
+                    
+                    # Temporary check - Ensure no infinite value is stored
+                    # if isinf(Optim.minimum(result))
+                    #     error("Error: Solution is Inf, check process!")
+                    # end
+
                     # Store the candidate value for this labor option.
                     @views Vcand[l, rho, a] =  -Optim.minimum(result)
+                    
                     # Also store the optimal a' for this labor option.
                     @views policy_a_opt[l, rho, a] = Optim.minimizer(result) 
+                        
+                    # catch e
+                    #     println("Error encountered at indices: l = ", l, ", rho = ", rho, ", a = ", a)
+                    #     println("Error message: ", e)
+                    # end
                 end
             end
         end
@@ -529,10 +595,10 @@ function intVFI(hh_consumption, l_grid, rho_grid, a_grid, hh_parameters, comp_pa
         @inbounds for rho in 1:gpar.N_rho            
             for a in 1:gpar.N_a
                 # Linear interpolation for Vcand
-                Vcand_interp[(rho, a)] = extrapolate(interpolate((l_grid,), Vcand[:, rho, a], Gridded(Linear())), Line())
+                Vcand_interp[(rho, a)] = extrapolate(interpolate((l_grid,), Vcand[:, rho, a], Gridded(Linear())), Interpolations.Flat())
 
                 # Linear interpolation for policy_a_opt
-                policy_a_interp[(rho, a)] = extrapolate(interpolate((l_grid,), policy_a_opt[:, rho, a], Gridded(Linear())), Line())
+                policy_a_interp[(rho, a)] = extrapolate(interpolate((l_grid,), policy_a_opt[:, rho, a], Gridded(Linear())), Interpolations.Flat())
             end
         end
         
@@ -577,13 +643,16 @@ function intVFI(hh_consumption, l_grid, rho_grid, a_grid, hh_parameters, comp_pa
         end
 
         # --- Step 4: Check convergence ---
-        if maximum(abs.(V_new .- V_guess)) < comp_params.vfi_tol
+        max_error = maximum(abs.(V_new .- V_guess))
+        if max_error < comp_params.vfi_tol
             println("Converged after $iter iterations")
             break
         end
-        
+
         # Otherwise, update the guess.
+        println("Iteration $iter, error: $max_error")
         V_guess .= V_new
+        
     end
     
     return V_new, policy_a, policy_l

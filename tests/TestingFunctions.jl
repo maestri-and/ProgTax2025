@@ -47,7 +47,7 @@ function test_budget_constraint()
     # Compute net income
     rand_y = rand_l * rand_rho * w
     rand_labor_tax = hh_labor_taxes[rand_l_i, rand_rho_i]
-    rand_return = (1 + r) * rand_a
+    rand_return = (1 + (1 - taxes.tau_k)r) * rand_a
 
     # Compute consumption and consumption tax
     rand_c = hh_consumption[rand_l_i, rand_rho_i, rand_a_i, rand_a_prime_i]
@@ -70,7 +70,7 @@ function test_budget_constraint()
 
         # Print
         println("Test passed!")
-        # println("c + T(c) = y - T(y) + (1 + r)a - a'")
+        # println("c + T(c) = y - T(y) + (1 + (1 - taxes.tau_k)r)a - a'")
         # println("$rand_c_ + $rand_cons_tax_ = $rand_y_ - $rand_labor_tax_ + $rand_return_ - $rand_a_prime_")
     else 
         error("Test failed! Budget constraint does not hold.\n" *
@@ -81,7 +81,7 @@ function test_budget_constraint()
 
 end
 
-
+# Deprecated
 function test_optimal_budget_constraint()
     # This function tests that the budget constraint holds after the 
     # Value Function Iteration 
@@ -113,12 +113,70 @@ function test_optimal_budget_constraint()
     rand_y = rand_opt_l * rand_rho * w
     println("Labor income: $rand_y")
     rand_labor_tax = hh_labor_taxes[rand_opt_l_i, rand_rho_i]
-    rand_return = (1 + r) * rand_a
+    rand_return = (1 + (1 - taxes.tau_k)r) * rand_a
     println("Asset income: $rand_return")
 
     # Compute consumption and consumption tax
     rand_c = hh_consumption[rand_opt_l_i, rand_rho_i, rand_a_i, rand_opt_a_prime_i]
     rand_cons_tax = hh_consumption_tax[rand_opt_l_i, rand_rho_i, rand_a_i, rand_opt_a_prime_i]
+
+    println("Consumption level: $rand_c")
+    println("Consumption taxes: $rand_cons_tax")
+
+    # Check that budget constraint holds
+    rand_income = rand_y + rand_return 
+    rand_taxes = rand_labor_tax + rand_cons_tax
+    rand_expenditure = rand_c + rand_opt_a_prime
+
+    rand_income - rand_taxes == rand_expenditure
+    
+
+    # Print output of check
+    if (abs(rand_income - rand_taxes - rand_expenditure) < 0.001)
+        println("Test passed!")
+    else 
+        error("Test failed! Budget constraint does not hold.\n" *
+                "Income: $rand_income\n" *
+                "Taxes: $rand_taxes\n" *
+                "Expenditure: $rand_expenditure")
+    end
+end
+
+function test_optimal_budget_constraint()
+    # This function tests that the budget constraint holds after the 
+    # Value Function Iteration 
+    println("Test #1: Testing that budget constraint holds...")
+
+    # Pick two random initial states 
+    rand_a_i = rand(1:gpar.N_a)
+    rand_rho_i = rand(1:gpar.N_rho)
+
+    rand_a = a_grid[rand_a_i]
+    rand_rho = rho_grid[rand_rho_i]
+
+    println("Testing for the following random state:")
+    println("rho = $rand_rho [$rand_rho_i]")
+    println("a = $rand_a [$rand_a_i]")
+
+    # Extract optimal choices
+    rand_opt_a_prime = policy_a[rand_rho_i, rand_a_i]
+    rand_opt_l = policy_l[rand_rho_i, rand_a_i]
+
+    println("Optimal choices found: ")
+    println("l = $rand_opt_l")
+    println("a' = $rand_opt_a_prime")
+
+    # Compute net income
+    rand_y = rand_opt_l * rand_rho * w
+    println("Labor income: $rand_y")
+    rand_labor_tax = tax_hh(rand_y, taxes.lambda_y, taxes.tau_y)
+    rand_return = (1 + (1 - taxes.tau_k)r) * rand_a
+    println("Asset income: $rand_return")
+
+    # Compute consumption and consumption tax
+    rand_cexp = get_Cexp(rand_rho, w, r, rand_opt_l, rand_a, rand_opt_a_prime, taxes)
+    rand_c = cExp2cInt[rand_cexp]
+    rand_cons_tax = rand_cexp - rand_c
 
     println("Consumption level: $rand_c")
     println("Consumption taxes: $rand_cons_tax")

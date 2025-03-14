@@ -76,7 +76,7 @@ function plot_taxes_vs_base(base_vec, tax_vec; base_range=nothing)
     return p
 end
 
-plot_taxes_vs_base(vec(hh_consumption), vec(hh_consumption_tax))
+plot_taxes_vs_base(vec(hh_consumption), vec(hh_consumption_tax); base_range = (-0.1, 0.5))
 
 # function plot_itp_vs_data(itp, x_data, y_data; x_range = nothing, y_range = nothing)
 #     if x_range

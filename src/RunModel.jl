@@ -66,6 +66,7 @@ taxes = Taxes(0.7, 0.2, # lambda_y, tau_y,
 # Temporary (TBM)
 w = 1
 r = 0.05
+net_r = (1 - taxes.tau_k)r
 
 
 #### COMPUTING TAXES, CONSUMPTION AND UTILITY FOR EACH STATE-CHOICE POINT #####
@@ -90,19 +91,27 @@ test_budget_constraint()
 
 println("Launching VFI...")
 
-# Interpolate continuation value
-V_guess = zeros(gpar.N_rho, gpar.N_a)
-
-itp_cont, cont_interp = interp_cont_value(V_guess, pi_rho, rho_grid, a_grid)
-
 # Interpolate function that optimal labor supply for each (ρ, a, a')
+# Using labor FOC and budget constraint 
 
-@elapsed V_new, policy_a, policy_l = intVFI(hh_consumption, l_grid, rho_grid, a_grid, hh_parameters, comp_params, 
+# testc, testl = find_opt_cons_labor(rho_grid, a_grid, rho, w, net_r, taxes, hh_parameters, gpar)
+
+# Interpolate continuation value
+# V_guess = zeros(gpar.N_rho, gpar.N_a)
+
+# itp_cont, cont_interp = interp_cont_value(V_guess, pi_rho, rho_grid, a_grid)
+
+
+
+V_new, policy_a, policy_l = intVFI(hh_consumption, l_grid, rho_grid, a_grid, hh_parameters, comp_params, 
 pi_rho, gpar)
+
+# SaveMatrix(V_middle, "output/preliminary/V_middle_debug_a" * "$(gpar.N_a)" * "_l" * "$(gpar.N_l)" * ".txt")
+
 ############ RANDOM CHECK - BUDGET CONSTRAINT HOLDS FOR SOLUTIONS #############
 
 # Random check: Budget constraint is satisfied for given random household state
-# c + T(c) = y - T_y(y) + (1 + r)a - a'
+# c + T(c) = y - T_y(y) + (1 + (1 - τk)r)a - a'
 
 # test_optimal_budget_constraint()
 
