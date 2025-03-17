@@ -100,7 +100,7 @@ end
 
 
 ###############################################################################
-              ######## 1. GENERIC PIECEWISE INTERPOLATION #########
+              ######## 2. GENERIC PIECEWISE INTERPOLATION #########
 ###############################################################################
 
 function piecewise_1D_interpolation(x, y; spline=false, return_threshold=false)
@@ -163,9 +163,11 @@ function piecewise_1D_interpolation(x, y; spline=false, return_threshold=false)
     y_valid = y[valid_indices]  # Feasible y values
 
     # Step 4: Create interpolation function based on `spline` argument
-    if spline
-        itp = Spline1D(x_valid, y_valid, k=3, monotonic=true)  # Monotonic cubic spline
+    if spline && length(x_valid) >= 4
+        # Use cubic splines only if we have at least 4 valid points
+        itp = Spline1D(x_valid, y_valid, k=3)
     else
+        # Fallback to linear interpolation if spline isn't possible
         itp = interpolate((x_valid,), y_valid, Gridded(Linear()))
         itp = extrapolate(itp, Interpolations.Flat())  # Avoids artificial smoothing
     end
@@ -187,9 +189,40 @@ function piecewise_1D_interpolation(x, y; spline=false, return_threshold=false)
     end
 end
 
+###############################################################################
+    ######## 3. INTERPOLATE OPTIMAL LABOR, CONSUMPTION AND UTILITY ########
+                    ######## FOR GIVEN (ρ, a, a') #########                    
+###############################################################################
+
+function interp_opt_funs(a_grid, opt_c_FOC, opt_l_FOC, gpar, hh_parameters)
+    # Create empty arrays to collect interpolating functions
+    opt_c_itp = Array{Any}(undef, gpar.N_rho, gpar.N_a)
+    opt_l_itp = Array{Any}(undef, gpar.N_rho, gpar.N_a)
+    opt_u_itp = Array{Any}(undef, gpar.N_rho, gpar.N_a)
+    # Create empty array to collect max choice a' implying non-negative consumption
+    # Used as boundary in the maximisation
+    max_a_prime = zeros(gpar.N_rho, gpar.N_a)
+
+    # Interpolate for each possible state (ρ, a)
+    @inbounds @threads for a_i in 1:gpar.N_a
+        for rho_i in 1:gpar.N_rho            
+            # Linear interpolation for consumption - Store also max a_prime
+            opt_c_itp[rho_i, a_i], max_a_prime[rho_i, a_i] = piecewise_1D_interpolation(a_grid, opt_c_FOC[rho_i, a_i, :], spline=false, return_threshold=true)
+
+            # Linear interpolation for labor
+            opt_l_itp[rho_i, a_i] = piecewise_1D_interpolation(a_grid, opt_l_FOC[rho_i, a_i, :], spline=false, return_threshold=false)
+
+            # Linear interpolation for utility
+            opt_u_itp[rho_i, a_i] = (a_prime) -> get_utility_hh(opt_c_itp[rho_i, a_i](a_prime), opt_l_itp[rho_i, a_i](a_prime), hh_parameters)
+        end
+    end
+
+    return opt_c_itp, opt_l_itp, opt_u_itp, max_a_prime
+end
+
 
 ###############################################################################
-  ######## 3. INTERPOLATE CONTINUATION VALUE FOR GIVEN STATE (ρ, a) #########
+  ######## 4. INTERPOLATE CONTINUATION VALUE FOR GIVEN STATE (ρ, a) #########
 ###############################################################################
 
 function interp_cont_value(V_guess, pi_rho, rho_grid, a_grid)
@@ -199,9 +232,9 @@ function interp_cont_value(V_guess, pi_rho, rho_grid, a_grid)
     cont = pi_rho * V_guess   # (N_rho, N_a)
     itp_cont = extrapolate(interpolate((rho_grid, a_grid), cont, Gridded(Linear())), Interpolations.Flat())
     # itp_cont = Spline2D(rho_grid, a_grid, cont) #Dierckx spline - ~50 times slower than linear
-    cont_interp = (a_prime, rho) -> itp_cont(a_prime, rho) 
+    itp_cont_wrap = (rho, a_prime) -> itp_cont(rho, a_prime) 
     
-    return itp_cont, cont_interp
+    return itp_cont, itp_cont_wrap
 end
 
 # # Plot - TBM
@@ -222,10 +255,4 @@ end
 # # Plot the relationship between assets today (a) vs. assets tomorrow (a') and the continuation value
 # plot(a_values, cont_values, label="Continuation Value", xlabel="Assets Today (a)", ylabel="Continuation Value", title="Interpolation of Continuation Value for ρ = $rho_val")
 
-###############################################################################
-      ######## 3. INTERPOLATE OPTIMAL LABOR FOR GIVEN (ρ, a, a') #########
-###############################################################################
 
-function interp_opt_labor(V_guess, pi_rho, rho_grid, a_grid)
-    return nothing
-end

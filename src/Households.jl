@@ -7,12 +7,12 @@ struct hh
 end
 
 # Define household utility 
-function get_utility_hh(consumption, labor, rra, phi, frisch; normalise = false)
+function get_utility_hh(consumption, labor, hh_parameters; normalise = false)
     # Compute households' utility - with normalisation if necessary 
     if normalise == true
-        return (consumption ^ (1 - rra) - 1)/(1 - rra) - phi * (labor ^ (1 + frisch) - 1)/(1 + frisch)
+        return (consumption ^ (1 - hh_parameters.rra) - 1)/(1 - hh_parameters.rra) - hh_parameters.phi * (labor ^ (1 + hh_parameters.frisch) - 1)/(1 + hh_parameters.frisch)
     else
-        return (consumption ^ (1 - rra))/(1 - rra) - phi * (labor ^ (1 + frisch))/(1 + frisch)
+        return (consumption ^ (1 - hh_parameters.rra))/(1 - hh_parameters.rra) - hh_parameters.phi * (labor ^ (1 + hh_parameters.frisch))/(1 + hh_parameters.frisch)
     end
 end
 
@@ -35,10 +35,11 @@ end
 
 # Compute optimal labor - from analytical solution 
 function get_opt_labor_from_FOC(c, rho, w, taxes, hh_parameters)
-    l_star = ((taxes.lambda_y * (1 - taxes.tau_y) * (rho * w)^(1 - taxes.tau_y)) / #Numerator
-             (2 - taxes.lambda_c * (1 - taxes.tau_c) * c ^ (-taxes.tau_c) * hh_parameters.phi * c^hh_parameters.rra) #Denominator
+    # num = (taxes.lambda_y * (1 - taxes.tau_y) * (rho * w)^(1 - taxes.tau_y)) * c^(-hh_parameters.rra) 
+    # den = (hh_parameters.phi * (2 - taxes.lambda_c * (1 - taxes.tau_c) * c ^ (-taxes.tau_c)))
+    l_star = (((taxes.lambda_y * (1 - taxes.tau_y) * (rho * w)^(1 - taxes.tau_y)) * c^(-hh_parameters.rra)) / #Numerator
+             (hh_parameters.phi * (2 - taxes.lambda_c * (1 - taxes.tau_c) * c ^ (-taxes.tau_c))) #Denominator
              ) ^ (1 / (hh_parameters.frisch + taxes.tau_y)) # Exponent
-
     return l_star
 end
 

@@ -21,6 +21,7 @@ using DelimitedFiles
 # using DataFrames
 using Plots
 using BenchmarkTools
+# using Infiltrator
 
 
 include("Parameters.jl")
@@ -30,6 +31,7 @@ include("Numerics.jl")
 include("Households.jl")
 include("Interpolants.jl")
 include("SolvingFunctions.jl")
+include("PlottingFunctions.jl")
 include("../tests/TestingFunctions.jl")
 
 
@@ -73,96 +75,51 @@ net_r = (1 - taxes.tau_k)r
 
 println("Solving budget constraint...")
 
-## INTERPOLATE TO SAVE MEMORY ##
-@elapsed hh_labor_taxes, hh_consumption, hh_consumption_tax, hh_consumption_plus_tax = compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, taxes)
+## INTERPOLATE TO SAVE MEMORY ## #TBM - can be optimised
+hh_labor_taxes, hh_consumption, hh_consumption_tax, hh_consumption_plus_tax = compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, taxes)
 
-@elapsed cExp2cInt = interp_consumption(hh_consumption, hh_consumption_plus_tax)
-
-# @elapsed cExp2cInt(0.05)
-
-# break_even = taxes.lambda_c^(1/Tau_c)
-# @elapsed find_c_feldstein(0.05, taxes.lambda_c, Tau_c; notax_upper = break_even)
+cExp2cInt = interp_consumption(hh_consumption, hh_consumption_plus_tax)
 
 #################### RANDOM CHECK - BUDGET CONSTRAINT HOLDS ###################
 
 test_budget_constraint()
 
-#--------------------# PERFORM VFI - INTERPOLATED VERSION #-------------------#
+#---------# PERFORM VFI - INTERPOLATED VERSION EXPLOITING LABOR FOC #---------#
 
-println("Launching VFI...")
+println("Computing optimal labor and consumption using labor FOC...")
 
-# Interpolate function that optimal labor supply for each (ρ, a, a')
+# Interpolate functions that define optimal labor supply and 
+# optimal consumption (and therefore utility level) for each (ρ, a, a')
 # Using labor FOC and budget constraint 
 
-# testc, testl = find_opt_cons_labor(rho_grid, a_grid, rho, w, net_r, taxes, hh_parameters, gpar)
+opt_c_FOC, opt_l_FOC = find_opt_cons_labor(rho_grid, a_grid, w, net_r, taxes, hh_parameters, gpar) #TBM - can be optimised
 
-# Interpolate continuation value
-# V_guess = zeros(gpar.N_rho, gpar.N_a)
+# --- Interpolate Optimal Labor and Consumption as functions of a' for each (ρ, a) ---#
+opt_c_itp, opt_l_itp, opt_u_itp, max_a_prime = interp_opt_funs(a_grid, opt_c_FOC, opt_l_FOC, gpar, hh_parameters);
 
-# itp_cont, cont_interp = interp_cont_value(V_guess, pi_rho, rho_grid, a_grid)
+# --- Launch VFI ---#
+println("Launching VFI...")
+
+V_new, policy_a = intVFI_FOC_parallel(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, hh_parameters, gpar, comp_params)
+
+# --- Plot policy function --- # 
+plot_policy_function(policy_a2, a_grid, rho_grid, policy_type="assets")
 
 
 
-V_new, policy_a, policy_l = intVFI(hh_consumption, l_grid, rho_grid, a_grid, hh_parameters, comp_params, 
-pi_rho, gpar)
-
-# SaveMatrix(V_middle, "output/preliminary/V_middle_debug_a" * "$(gpar.N_a)" * "_l" * "$(gpar.N_l)" * ".txt")
-
-############ RANDOM CHECK - BUDGET CONSTRAINT HOLDS FOR SOLUTIONS #############
-
-# Random check: Budget constraint is satisfied for given random household state
-# c + T(c) = y - T_y(y) + (1 + (1 - τk)r)a - a'
-
-# test_optimal_budget_constraint()
-
+#######################################################################################
 
 # Store the VFI guess 
 SaveMatrix(V_new, "output/preliminary/V_guess_matrix_a" * "$gpar.N_a" * "_l" * "$gpar.N_l" * ".txt")
 # V_guess_read = ReadMatrix("output/preliminary/V_guess_matrix.txt")
 
-# Checks
-policy_a = a_grid[policy_a_index[:,:]]
-policy_l = l_grid[policy_l_index[:,:]]
-
-
-############################ PLOT POLICY FUNCTIONS ############################
-##Policy function for assets
-# Initialize the plot object
-pfa = plot(title="Policy Function for Assets", 
-           xlabel="Current Assets (a)", 
-           ylabel="Future Assets (a')", 
-           legend=:bottomright);
-
-# Loop over each productivity level and add a line to the plot
-for i_rho in 1:gpar.N_rho    
-    plot!(pfa, a_grid, policy_a[i_rho, :], label="ρ = $i_rho", lw=2)
-end
-
-# Display the plot
-display(pfa)
-
 # Save the figure
 # savefig(pfa, "output/preliminary/asset_policy_len$gpar.N_a.png")
-
-
-## Policy function for labor
-# Initialize the plot object
-pfl = plot(title="Policy Function for Labor", 
-           xlabel="Current Assets (a)", 
-           ylabel="Labor supplied (l)", 
-           legend=:bottomright)
-
-# Loop over each productivity level and add a line to the plot
-for i_rho in 1:gpar.N_rho    plot!(pfl, a_grid, policy_l[i_rho, :], label="ρ = $i_rho", lw=2)
-end
-
-# Display the plot
-display(pfl)
 
 # Save the figure
 # savefig(pfl, "output/preliminary/labor_policy_l$gpar.N_l" * "_a$gpar.N_a" * ".png")
 
-################ INTERPOLATE ##################
+################ EX-POST INTERPOLATIONS ##################
 
 # TBM - To be exported to other script
 

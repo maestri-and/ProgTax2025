@@ -313,7 +313,7 @@ function plot_utility_function(rra, phi, frisch; normalise = false, c_range = (0
     l_values = range(l_range..., length = num_points)
 
     # Create a grid of consumption and labor values
-    utility_matrix = [get_utility_hh(c, l, rra, phi, frisch, normalise = normalise) for c in c_values, l in l_values]
+    utility_matrix = [get_utility_hh(c, l, hh_parameters, normalise = normalise) for c in c_values, l in l_values]
 
     # Transpose the utility matrix for correct plotting
     utility_matrix = utility_matrix'
