@@ -198,6 +198,23 @@ end
 
 
 function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, taxes; replace_neg_consumption = false)
+    """
+    Computes household consumption, labor income taxes, and consumption taxes over the grid.
+
+    Args:
+        a_grid   : Grid of asset values.
+        rho_grid : Grid of productivity levels.
+        l_grid   : Grid of labor supply choices.
+        gpar     : Struct containing grid parameters.
+        w        : Wage rate.
+        r        : Interest rate.
+        taxes    : Struct containing tax parameters.
+        replace_neg_consumption : Whether to replace negative consumption with -Inf.
+
+    Returns:
+        (T_y, hh_consumption, hh_consumption_tax)
+    """
+
     # SECTION 1 - COMPUTE DISPOSABLE INCOME (AFTER WAGE TAX & ASSET RETURNS) #
     
     #Compute gross labor income for each combination of labor and productivity
@@ -255,18 +272,32 @@ function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, 
     )
 
     # Retrieve consumption tax - in-place to avoid costly memory allocation
-    hh_consumption_tax = hh_consumption_plus_tax .- hh_consumption;
+    hh_consumption_plus_tax .-= hh_consumption;
+
+    hh_consumption_tax = hh_consumption_plus_tax
 
     # Correct negative consumption 
     if replace_neg_consumption == true
         @views hh_consumption[hh_consumption .< 0] .= -Inf
     end
 
-    return T_y, hh_consumption, hh_consumption_tax, hh_consumption_plus_tax
+    return T_y, hh_consumption, hh_consumption_tax
 end
 
 function compute_utility_grid(hh_consumption, l_grid, hh_parameters; minus_inf = true)
-        ########## SECTION 3 - COMPUTE HOUSEHOLD UTILITY ##########
+    """
+    Computes household utility for given consumption and labor choices.
+
+    Args:
+        hh_consumption : Precomputed consumption matrix.
+        l_grid        : Grid of labor supply choices.
+        hh_parameters : Struct containing household parameters.
+        minus_inf     : Whether to replace -Inf with a finite minimum.
+
+    Returns:
+        hh_utility : Matrix containing computed household utility.
+    """
+    ########## SECTION 3 - COMPUTE HOUSEHOLD UTILITY ##########
 
     # Compute households utility
     hh_utility = similar(hh_consumption); # Pre-allocate
@@ -349,330 +380,7 @@ end
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
-# Standard baseline function - Vectorised, no parallelisation
-# Attempts to parallelize did not improve performances
-# Benchmarking results, state space with N_l = 10, N_rho = 7, N_a = 100, N_tau_c=N_tau_y=1
-# Speed 2.90 s
-# Memory 3.01 GB
-# Benchmarking results, state space with N_l = 50, N_rho = 7, N_a = 300, N_tau_c=N_tau_y=1
-# Speed 176.096 s
-# Memory 126.66 GB
-
-function standardVFI(gpar, comp_params, hh_parameters, hh_utility, pi_rho)
-    # Initialize the state-dependent value function guess (over rho and a)
-    V_guess = zeros(gpar.N_rho, gpar.N_a)
-    
-    # Preallocate the policy arrays for asset and labor (both 2-D: (rho, a))
-    policy_a_index = zeros(Int64, gpar.N_rho, gpar.N_a)
-    policy_l_index = zeros(Int64, gpar.N_rho, gpar.N_a)
-    
-    # Preallocate candidate arrays for each labor option.
-    candidate = zeros(gpar.N_rho, gpar.N_a, gpar.N_a)
-    # V_candidate will hold the value (after optimizing over a') for each labor option.
-    V_candidate = zeros(gpar.N_l, gpar.N_rho, gpar.N_a)
-    asset_policy_candidate = zeros(Int64, gpar.N_l, gpar.N_rho, gpar.N_a)
-    
-    # Preallocate a new state-value function for the iteration.
-    V_new = similar(V_guess)
-
-    # Continuation value
-    cont = zeros(gpar.N_rho, gpar.N_a)
-    
-    for iter in 1:comp_params.vfi_max_iter
-        # --- Step 1: Compute the continuation value for every state ---
-        # cont[rho, j] = sum_{rho'} pi_rho[rho, rho'] * V_guess[rho', j]
-        cont .= pi_rho * V_guess  # shape: (N_rho, N_a)
-        
-        # --- Step 2: For each labor option, compute candidate value functions ---
-        # The candidate for labor option l is:
-        #   candidate(l, rho, a, j) = hh_utility(l, rho, a, j) + beta * cont[rho, j]
-        # We need to maximize over j (next asset choices) for each (rho, a).
-        # Loop over labor options; the remaining maximization will be vectorized over (rho, a).
-        for l in 1:gpar.N_l            # hh_utility[l, :, :, :] has shape (N_rho, N_a, N_a)
-            # Reshape cont to (N_rho, 1, N_a) so it broadcasts along the a dimension.
-            candidate .= hh_utility[l, :, :, :] .+ hh_parameters.beta .* reshape(cont, (gpar.N_rho, 1, gpar.N_a))
-            # For each current state (rho, a), maximize over the last dimension (j).
-            # We'll loop over (rho, a) to extract both max values and argmax indices.
-            for rho in 1:gpar.N_rho                for a in 1:gpar.N_a                    # findmax returns (max_value, index) for candidate[l, rho, a, :]
-                    value, idx = findmax(candidate[rho, a, :])
-                    V_candidate[l, rho, a] = value
-                    asset_policy_candidate[l, rho, a] = idx
-                end
-            end
-        end
-        
-        # --- Step 3: Collapse the labor dimension ---
-        # For each state (rho, a), choose the labor option that gives the highest candidate value.
-        for rho in 1:gpar.N_rho            for a in 1:gpar.N_a                value, labor_opt = findmax(V_candidate[:, rho, a])
-                V_new[rho, a] = value
-                policy_l_index[rho, a] = labor_opt
-                policy_a_index[rho, a] = asset_policy_candidate[labor_opt, rho, a]
-            end
-        end
-        
-        # --- Step 4: Check convergence ---
-        if maximum(abs.(V_new .- V_guess)) < comp_params.vfi_tol
-            println("Converged after $iter iterations")
-            break
-        end
-        
-        # Update the guess for the next iteration.
-        V_guess .= V_new
-    end
-    
-    return V_new, policy_a_index, policy_l_index
-end
-
-
-#### Memory efficient version!!! Using more vectorisation and pre-allocation to save memory 
-# Benchmarking results, state space with N_l = 10, N_rho = 7, N_a = 100, N_tau_c=N_tau_y=1
-# Speed 3.02 s
-# Memory 1.48 GB
-# Benchmarking results, state space with N_l = 50, N_rho = 7, N_a = 300, N_tau_c=N_tau_y=1
-# Speed 158.803 s
-# Memory 63.25 GB
-
-function MemoryEffVFI(gpar, comp_params, hh_parameters, hh_utility, pi_rho; V_guess_read = nothing)
-    if isnothing(V_guess_read) 
-        # Initialize the state-dependent value function guess (over ρ and a)
-        V_guess = zeros(gpar.N_rho, gpar.N_a)
-    else
-        V_guess = V_guess_read 
-    end
-    
-    # Preallocate the policy arrays (for state (ρ, a))
-    policy_a_index = zeros(Int64, gpar.N_rho, gpar.N_a)
-    policy_l_index = zeros(Int64, gpar.N_rho, gpar.N_a)
-    
-    # Preallocate candidate arrays (per labor option)
-    candidate = zeros(gpar.N_rho, gpar.N_a, gpar.N_a)
-    # V_candidate[l, ρ, a] = optimal value for labor option l at state (ρ,a)
-    V_candidate = zeros(gpar.N_l, gpar.N_rho, gpar.N_a)
-    # asset_policy_candidate[l, ρ, a] stores the argmax over next-assets for that labor option.
-    asset_policy_candidate = zeros(Int64, gpar.N_l, gpar.N_rho, gpar.N_a)
-
-    # Continuation value
-    cont = zeros(gpar.N_rho, 1, gpar.N_a)
-    max_vals    = zeros(gpar.N_rho, gpar.N_a)
-    argmax_vals = zeros(gpar.N_rho, gpar.N_a)
-    
-    # Preallocate the new state value function
-    V_new = similar(V_guess)
-    
-    for iter in 1:comp_params.vfi_max_iter
-        # --- Step 1: Compute continuation value ---
-        # cont[ρ, j] = Σ_{ρ'} π(ρ,ρ') V_guess(ρ', j)
-        cont .= reshape(pi_rho * V_guess, (gpar.N_rho, 1, gpar.N_a))  # (N_rho, N_a) but reshaped for computation
-        
-        # --- Step 2: For each labor option, compute candidate value functions ---
-        # For each labor option l, hh_utility[l, :, :, :] has shape (N_rho, N_a, N_a),
-        # and we add beta*cont (reshaped to (N_rho,1,N_a)) along the asset-choice dimension.
-        @inbounds for l in 1:gpar.N_l            @views candidate .= hh_utility[l, :, :, :] .+ hh_parameters.beta .* cont
-            # candidate now has shape (N_rho, N_a, N_a), where the 3rd dimension indexes next assets.
-            # Vectorize the maximization over next assets:
-            V_candidate[l, :, :] .= dropdims(maximum(candidate, dims=3), dims=3)
-            asset_policy_candidate[l, :, :] .= map(x -> x[3], dropdims(argmax(candidate, dims=3), dims=3))            
-        end
-        
-        # --- Step 3: Collapse the labor dimension ---
-        # Vectorize over (ρ, a) using maximum/argmax:
-        max_vals    .= dropdims(maximum(V_candidate, dims=1), dims=1)  # (N_rho, N_a)
-        argmax_vals = dropdims(argmax(V_candidate, dims=1), dims=1)   # (N_rho, N_a)
-
-        V_new .= max_vals
-        policy_l_index .= map(x -> x[1], argmax_vals)
-
-
-        # Extract the asset policy corresponding to the optimal labor choice.
-        # Option 1: Pure vectorized comprehension:
-        policy_a_index .= [asset_policy_candidate[policy_l_index[i,j], i, j] for i in 1:gpar.N_rho, j in 1:gpar.N_a]
-
-        # Option 2: Parallelized version using Threads:
-        # Uncomment the following block if you want to parallelize:
-        # policy_a_index = similar(policy_l_index)
-        # Threads.@threads for idx in eachindex(policy_l_index)
-        #     i, j = ind2sub(size(policy_l_index), idx)
-        #     policy_a_index[idx] = asset_policy_candidate[argmax_vals[i,j], i, j]
-        # end
-
-        # --- Step 4: Check convergence ---
-        if maximum(abs.(V_new .- V_guess)) < comp_params.vfi_tol
-            println("Converged after $iter iterations")
-            break
-        end
-        
-        # Update the guess.
-        V_guess .= V_new
-    end
-    
-    return V_new, policy_a_index, policy_l_index
-end
-
-############################## INTERPOLATED VFI ###############################
-
-function intVFI(hh_consumption, l_grid, rho_grid, a_grid, hh_parameters, comp_params, 
-    pi_rho, g_par)
-    # Initialize the state-dependent value function guess (over ρ and a)
-    V_guess = zeros(gpar.N_rho, gpar.N_a)
-
-    # Preallocate the policy arrays (for state (ρ, a))
-    policy_a = zeros(Float64, gpar.N_rho, gpar.N_a)
-    policy_l = zeros(Float64, gpar.N_rho, gpar.N_a)
-    
-    # # V_candidate[l, ρ, a] = optimal value for labor option l at state (ρ,a)
-    Vcand = zeros(gpar.N_l, gpar.N_rho, gpar.N_a)
-    policy_a_opt = zeros(gpar.N_l, gpar.N_rho, gpar.N_a)
-
-    # # Continuation value
-    cont = zeros(gpar.N_rho, gpar.N_a)
-    
-    # Preallocate the new state value function
-    V_new = similar(V_guess)
-    
-    # Create interpolant for household utility
-    hh_utility = compute_utility_grid(hh_consumption, l_grid, hh_parameters; minus_inf = true)
-    # Replace -Inf with large negative values to ensure smoothness of interpolation
-    # itp_utility = extrapolate(interpolate((l_grid, rho_grid, a_grid, a_grid), hh_utility, Gridded(Linear())), Interpolations.Flat())
-    # utility_interp = (l, rho, a, a_prime) -> itp_utility(l, rho, a, a_prime)
-
-    for iter in 1:comp_params.vfi_max_iter
-        # --- Step 1: Interpolate continuation value ---
-        itp_cont, itp_cont_wrap = interp_cont_value(V_guess, pi_rho, rho_grid, a_grid)
-
-        # --- Step 2: For each labor option, compute candidate value functions ---
-        # For each labor option l, maximise the interpolated objective function
-        @inbounds for l in 1:gpar.N_l            
-            for rho in 1:gpar.N_rho                
-                for a in 1:gpar.N_a                    
-                    # Interpolate utility for given l, rho and a
-                    # utility_interp = extrapolate(interpolate((a_grid,), hh_utility[l, rho, a, :], Gridded(Linear())), Interpolations.Flat())
-                    # try
-                    utility_interp, max_a_prime = piecewise_1D_interpolation(a_grid, hh_utility[l, rho, a, :]; 
-                                                                             spline = false, return_threshold = true)
-                    # try
-                    # utility_interp, max_a_prime = piecewise_1D_interpolation(a_grid, hh_utility[l, rho, a, :]; 
-                    #                                                             spline=false, return_threshold=true)
-                    # catch e
-                    #     println("Error encountered at indices: l = ", l, ", rho = ", rho, ", a = ", a)
-                    #     println("Error message: ", e)
-                    #     rethrow()  # Optional: Rethrow the error to stop execution, or remove if you want it to continue
-                    # end
-
-                    # plot_interpolation(a_grid, hh_utility[l, rho, a, :], utility_interp, x_max=2.5)
-                    # Define objective function to maximise
-                    objective = a_prime -> -(utility_interp(a_prime) + hh_parameters.beta * itp_cont_wrap(rho, a_prime))
-
-                    # Optimize - Restrict search to feasible points to ensure finding right solution
-                    result = optimize(objective, gpar.a_min, max_a_prime, Brent()) #TBM - Check Brent()
-                    
-                    # Temporary check - Ensure no infinite value is stored
-                    # if isinf(Optim.minimum(result))
-                    #     error("Error: Solution is Inf, check process!")
-                    # end
-
-                    # Store the candidate value for this labor option.
-                    @views Vcand[l, rho, a] =  -Optim.minimum(result)
-                    
-                    # Also store the optimal a' for this labor option.
-                    @views policy_a_opt[l, rho, a] = Optim.minimizer(result) 
-                        
-                    # catch e
-                    #     println("Error encountered at indices: l = ", l, ", rho = ", rho, ", a = ", a)
-                    #     println("Error message: ", e)
-                    # end
-                end
-            end
-        end
-        
-        # --- Step 3: Interpolate Over Labor (for each (ρ, a)) ---
-        # Vcand_interp = Dict()        # Store splines per V(ρ, a)
-        # policy_a_interp = Dict()     # Store splines for policy_a_opt
-        # Vcand_interp = Dict{Tuple{Int, Int}, Spline1D}()
-        # policy_a_interp = Dict{Tuple{Int, Int}, Spline1D}()
-
-
-        # # Construct cubic splines over l for each (ρ, a) pair
-        # @inbounds for rho in 1:gpar.N_rho            
-        #     for a in 1:gpar.N_a                
-        #         Vcand_interp[(rho, a)] = Spline1D(l_grid, Vcand[:, rho, a], k=3)
-        #         policy_a_interp[(rho, a)] = Spline1D(l_grid, policy_a_opt[:, rho, a], k=3)
-        #     end
-        # end
-
-        # --- Step 3: Interpolate Over Labor (for each (ρ, a)) ---
-        Vcand_interp = Dict{Tuple{Int, Int}, Any}()  # Store linear interpolators per V(ρ, a)
-        policy_a_interp = Dict{Tuple{Int, Int}, Any}()  # Store linear interpolators for policy_a_opt
-
-        # Construct linear interpolations over l for each (ρ, a) pair
-        @inbounds for rho in 1:gpar.N_rho            
-            for a in 1:gpar.N_a
-                # Linear interpolation for Vcand
-                Vcand_interp[(rho, a)] = extrapolate(interpolate((l_grid,), Vcand[:, rho, a], Gridded(Linear())), Interpolations.Flat())
-
-                # Linear interpolation for policy_a_opt
-                policy_a_interp[(rho, a)] = extrapolate(interpolate((l_grid,), policy_a_opt[:, rho, a], Gridded(Linear())), Interpolations.Flat())
-            end
-        end
-        
-        # # Retrieve the interpolator for policy function
-        # rho_val, a_val = 3, 20
-        # policy_interp = policy_a_interp[(rho_val, a_val)]
-
-        # # Generate a finer grid for labor values
-        # fine_l_grid = range(minimum(l_grid), maximum(l_grid), length=200)  # More points for smooth curve
-        # interp_values = policy_interp.(fine_l_grid)  # Evaluate interpolation
-
-        # # Plot original data points
-        # scatter(l_grid, policy_a_opt[:, rho_val, a_val], markersize=4, color=:red, label="Original Data")
-
-        # # Plot interpolated spline
-        # plot!(fine_l_grid, interp_values, linewidth=2, color=:blue, label="Cubic Spline Interpolation", legend=false)
-
-        # # Titles and labels
-        # title!("Interpolated Policy Function (ρ=$rho_val, a=$a_val)")
-        # xlabel!("Labor Grid (l)")
-        # ylabel!("Policy a'")
-
-        # --- Step 4: Solve for Optimal Labor Choice ---
-        @inbounds for rho in 1:gpar.N_rho            
-            for a in 1:gpar.N_a                
-                # Define the objective function to maximize over labor
-                obj_l = l -> -Vcand_interp[(rho, a)](l)  # Interpolate Vcand over l
-
-                # Optimize labor choice in [l_min, l_max]
-                res_l = optimize(obj_l, gpar.l_min, gpar.l_max, Brent())
-
-                # Store optimal labor choice (continuous)
-                policy_l[rho, a] = Optim.minimizer(res_l)
-
-                # Compute corresponding optimal asset choice
-                l_star = policy_l[rho, a]
-                policy_a[rho, a] = policy_a_interp[(rho, a)](l_star)
-
-                # Store updated value function
-                V_new[rho, a] = -Optim.minimum(res_l)
-            end
-        end
-
-        # --- Step 4: Check convergence ---
-        max_error = maximum(abs.(V_new .- V_guess))
-        if max_error < comp_params.vfi_tol
-            println("Converged after $iter iterations")
-            break
-        end
-
-        # Otherwise, update the guess.
-        println("Iteration $iter, error: $max_error")
-        V_guess .= V_new
-        
-    end
-    
-    return V_new, policy_a, policy_l
-end
-
-
 ######################### VFI - EXPLOITING LABOR FOC ##########################
-
 
 function intVFI_FOC(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, hh_parameters, gpar, comp_params)
     # --- Step 0: Pre-allocate variables ---
@@ -784,5 +492,36 @@ function intVFI_FOC_parallel(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, h
 end
 
 
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#--------------------------# 4. POLICY FUNCTIONS #----------------------------#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
-            
+function compute_policy_matrix(opt_policy_itp, policy_a_int, a_grid, rho_grid)
+    """
+    Computes a policy function matrix (labor or consumption) based on the optimal asset policy.
+
+    Args:
+        opt_policy_itp : Array of 1D interpolations mapping a' → policy value (labor or consumption).
+        policy_a_int   : Function or interpolation mapping (ρ, a) → a' (optimal asset policy).
+        a_grid         : Vector of asset grid values.
+        rho_grid       : Vector of productivity grid values.
+
+    Returns:
+        A matrix of policy values for l(ρ, a) or c(ρ, a), depending on the input.
+    """
+
+    # Preallocate policy matrix
+    policy_matrix = zeros(length(rho_grid), length(a_grid))
+
+    # Compute policy values at optimal a'
+    for rho_i in 1:length(rho_grid)
+        for a_i in 1:length(a_grid)
+            a_prime_opt = policy_a_int(rho_grid[rho_i], a_grid[a_i])  # Get optimal a'
+            policy_matrix[rho_i, a_i] = opt_policy_itp[rho_i, a_i](a_prime_opt)  # Get policy value
+        end
+    end
+
+    return policy_matrix
+end
