@@ -77,6 +77,8 @@ function interp_consumption(hh_consumption, hh_consumption_plus_tax; piecewise =
                 return itp_extrap(x)  # Interpolation for x > 0
             end
         end
+
+        return piecewise_interp
     else
     # Sort the data by x_data:
     perm = sortperm(x_data)
@@ -255,4 +257,15 @@ end
 # # Plot the relationship between assets today (a) vs. assets tomorrow (a') and the continuation value
 # plot(a_values, cont_values, label="Continuation Value", xlabel="Assets Today (a)", ylabel="Continuation Value", title="Interpolation of Continuation Value for ρ = $rho_val")
 
+###############################################################################
+  ##################### 5. INTERPOLATE POLICY FUNCTIONS #####################
+###############################################################################
 
+function Spline2D_adj(rho_grid, a_grid, matrix2d)
+    # Get Dierckx Spline2D
+    itp = Spline2D(rho_grid, a_grid, matrix2d)
+    # Fix upper and lower bound
+    min_val = minimum(matrix2d)
+    max_val = maximum(matrix2d)
+    return (ρ, a) -> clamp(itp(ρ, a), min_val, max_val)
+end

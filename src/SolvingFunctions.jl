@@ -197,7 +197,7 @@ function compute_consumption_grid(a_grid, rho_grid, l_grid, gpar, w, r, taxes)
 end
 
 
-function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, taxes; replace_neg_consumption = false)
+function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, taxes; replace_neg_consumption = false, return_cplustax = false)
     """
     Computes household consumption, labor income taxes, and consumption taxes over the grid.
 
@@ -271,17 +271,29 @@ function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, 
     notax_upper = 0 # break_even - # use to leave negative consumption
     )
 
-    # Retrieve consumption tax - in-place to avoid costly memory allocation
-    hh_consumption_plus_tax .-= hh_consumption;
+    if return_cplustax 
+        # Create new array for taxes, so to return the three of them 
+        hh_consumption_tax = hh_consumption_plus_tax .- hh_consumption;
 
-    hh_consumption_tax = hh_consumption_plus_tax
+        # Correct negative consumption 
+        if replace_neg_consumption == true
+            @views hh_consumption[hh_consumption .< 0] .= -Inf
+        end
 
-    # Correct negative consumption 
-    if replace_neg_consumption == true
-        @views hh_consumption[hh_consumption .< 0] .= -Inf
+        return T_y, hh_consumption, hh_consumption_tax, hh_consumption_plus_tax
+
+    else
+        # Retrieve consumption tax - in-place to avoid costly memory allocation
+        hh_consumption_plus_tax .-= hh_consumption;
+        hh_consumption_tax = hh_consumption_plus_tax
+
+        # Correct negative consumption 
+        if replace_neg_consumption == true
+            @views hh_consumption[hh_consumption .< 0] .= -Inf
+        end
+
+        return T_y, hh_consumption, hh_consumption_tax
     end
-
-    return T_y, hh_consumption, hh_consumption_tax
 end
 
 function compute_utility_grid(hh_consumption, l_grid, hh_parameters; minus_inf = true)
@@ -326,7 +338,7 @@ end
 # derived analytically to estimate optimal consumption and labor as 
 # functions of (ρ, a, a'), to reduce households problem to a single choice
 
-function find_opt_cons_labor(rho_grid, a_grid, w, net_r, taxes, hh_parameters, gpar)
+function find_opt_cons_labor(rho_grid, a_grid, w, net_r, taxes, hh_parameters, gpar; enforce_labor_cap = true, replace_neg_consumption = true)
     # Create matrices for optimal consumption and optimal labor
     opt_consumption = zeros(gpar.N_rho, gpar.N_a, gpar.N_a)
     opt_labor = zeros(gpar.N_rho, gpar.N_a, gpar.N_a)
@@ -335,6 +347,9 @@ function find_opt_cons_labor(rho_grid, a_grid, w, net_r, taxes, hh_parameters, g
     rho = 0
     rhs = 0 
     opt_c = 0
+    opt_l = 0
+    # Compute upper bound for root finding
+    # root_max = maximum(a_grid)*2
 
     for rho_i in 1:gpar.N_rho
         # Get rho from the grid
@@ -343,32 +358,115 @@ function find_opt_cons_labor(rho_grid, a_grid, w, net_r, taxes, hh_parameters, g
         # Define the wage as a function of c using the labor supply function
         wage_star(c) = rho * w * get_opt_labor_from_FOC(c, rho, w, taxes, hh_parameters)
     
-        for a_i in 1:gpar.N_a
-            for a_prime_i in 1:gpar.N_a
-                # Compute saving returns + saving expenditure (rhs)
-                rhs = (1 + net_r) * a_grid[a_i] - a_grid[a_prime_i]
-    
-                # Define the objective function to solve for optimal consumption (c)
-                f = c -> 2 * c - taxes.lambda_c * c^(1 - taxes.tau_c) - taxes.lambda_y * wage_star(c) ^ (1 - taxes.tau_y) - rhs
-    
-                try
-                    # Find solution, if any
-                    opt_c = find_zero(f, 0.5)
-                    @views opt_consumption[rho_i, a_i, a_prime_i] = opt_c #0.5 Initial guess, adjustable
-                    # Get optimal labor
-                    @views opt_labor[rho_i, a_i, a_prime_i] = get_opt_labor_from_FOC(opt_c, rho, w, taxes, hh_parameters)
-                catch e
-                    if isa(e, DomainError)
-                        # Handle DomainError by returning -Inf
-                        @views opt_consumption[rho_i, a_i, a_prime_i] = -Inf
-                        @views opt_labor[rho_i, a_i, a_prime_i] = -Inf
-                    else
-                        # Rethrow other exceptions
-                        throw(e)
+        if enforce_labor_cap
+            for a_i in 1:gpar.N_a
+                for a_prime_i in 1:gpar.N_a
+                    # Compute saving returns + saving expenditure (rhs)
+                    rhs = (1 + net_r) * a_grid[a_i] - a_grid[a_prime_i]
+        
+                    # Define the objective function to solve for optimal consumption (c)
+                    f = c -> 2 * c - taxes.lambda_c * c^(1 - taxes.tau_c) - taxes.lambda_y * wage_star(c) ^ (1 - taxes.tau_y) - rhs
+
+                    # plot_f(f, x_min = 0, x_max = 0.5)
+
+                    try
+                        # Find solution, if any - Dismissed Newton method as it was giving wrong solution!
+                        # Bisection is 5x slower but safer, Brent is slightly faster (4x slower than Secant Order1())                       
+                        # opt_c = find_zero(f, 1, Roots.Order1()) 
+                        # opt_c = find_zero(f, (1e-6, 0.5), Roots.Bisection())
+                        # opt_c = find_zero(f, (0.0, 10), Roots.Brent())
+                        
+                        # Update: hybrid function trying secant method first and bisection in case of failure
+                        opt_c = robust_root_FOC(f, 1e-8, 0.5)   # Use a very low lower bound to avoid bracketing error with bisection
+                        # opt_c = flexible_root_finder(f, 0.0, 0.001, 0.5)
+
+                        # Find optimal labor implied
+                        opt_l = get_opt_labor_from_FOC(opt_c, rho, w, taxes, hh_parameters)
+
+                        # Check whether it is within boundaries, if not 
+                        # replace with l = 1 and recompute consumption
+                        # exploiting concavity of utility function
+                        if opt_l > 1
+                            # Assign max to labor
+                            opt_l = 1 
+                            # Recompute consumption according to budget constraint
+                            opt_c = get_opt_c_with_max_labor(rho, a_grid[a_i], a_grid[a_prime_i], w, net_r, taxes; max_labor = 1)
+                        end
+
+                        # Check budget constraint holds! - TBM: Consider removing check to improve performances if safe enough
+                        if isfinite(opt_c)
+                            try 
+                                @assert (2*opt_c - taxes.lambda_c*opt_c^(1 - taxes.tau_c)) - (taxes.lambda_y * (rho * w * opt_l) ^ (1 - taxes.tau_y) + rhs) < 0.0001
+                            catch AssertionError
+                                println("Budget constraint error at rho_i: $rho_i, a_i: $a_i, a_prime_i: $a_prime_i ")
+                                throw(AssertionError)
+                            end
+                        end
+
+                        # Store values
+                        @views opt_consumption[rho_i, a_i, a_prime_i] = opt_c
+                        @views opt_labor[rho_i, a_i, a_prime_i] = opt_l
+
+                    catch e
+                        if isa(e, DomainError)
+                            # Handle DomainError by returning -Inf
+                            @views opt_consumption[rho_i, a_i, a_prime_i] = -Inf
+                            @views opt_labor[rho_i, a_i, a_prime_i] = Inf
+                        else
+                            # Rethrow other exceptions
+                            println("Unexpected error at rho_i: $rho_i, a_i: $a_i, a_prime_i: $a_prime_i ")
+                            throw(e)
+                        end
+                    end
+                end
+            end
+        else
+            for a_i in 1:gpar.N_a
+                for a_prime_i in 1:gpar.N_a
+                    # Compute saving returns + saving expenditure (rhs)
+                    rhs = (1 + net_r) * a_grid[a_i] - a_grid[a_prime_i]
+        
+                    # Define the objective function to solve for optimal consumption (c)
+                    f = c -> 2 * c - taxes.lambda_c * c^(1 - taxes.tau_c) - taxes.lambda_y * wage_star(c) ^ (1 - taxes.tau_y) - rhs
+        
+                    try
+                        # Find solution, if any - Dismissed Newton method as it was giving wrong solution!
+                        # Bisection is 5x slower but safer, Brent is slightly faster (4x slower than Secant Order1())
+                        # opt_c = find_zero(f, 0.5, Roots.Order1()) #0.5 Initial guess, adjustable
+                        # opt_c = find_zero(f, (1e-6, 2*a_grid_max), Roots.Bisection())
+                        opt_c = find_zero(f, (1e-6, root_max), Roots.Brent())
+
+                        # Find optimal labor implied
+                        opt_l = get_opt_labor_from_FOC(opt_c, rho, w, taxes, hh_parameters)
+
+                        
+
+                        @views opt_consumption[rho_i, a_i, a_prime_i] = opt_c 
+                        # Get optimal labor
+                        @views opt_labor[rho_i, a_i, a_prime_i] = opt_l
+                    catch e
+                        if isa(e, DomainError)
+                            # Handle DomainError by returning -Inf
+                            @views opt_consumption[rho_i, a_i, a_prime_i] = -Inf
+                            @views opt_labor[rho_i, a_i, a_prime_i] = -Inf
+                        else
+                            # Rethrow other exceptions
+                            throw(e)
+                        end
                     end
                 end
             end
         end
+    end
+
+    # Replace negative consumption points
+    if replace_neg_consumption
+        # Find all points were the consumption feasibility constraint is broken
+        bc_indices = findall(opt_consumption .< 0)
+        # Replace consumption matrix with -Inf
+        opt_consumption[bc_indices] .= -Inf
+        # Replace labor matrix with Inf
+        opt_labor[bc_indices] .= Inf
     end
     return opt_consumption, opt_labor
 end
@@ -464,14 +562,51 @@ function intVFI_FOC_parallel(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, h
         # --- Step 2: Maximize Bellman equation for each (ρ, a) ---
         @inbounds @threads for a_i in 1:gpar.N_a 
             for rho_i in 1:gpar.N_rho
-            # Define and optimize the objective function
-            results[rho_i, a_i] = optimize(a_prime -> -(opt_u_itp[rho_i, a_i](a_prime) + hh_parameters.beta * itp_cont_wrap(rho_grid[rho_i], a_prime)), 
-                                           gpar.a_min, max_a_prime[rho_i, a_i], 
-                                           GoldenSection()) 
+                # # Solving VFI issues - plotting 
+                # # Compute the objective function values
+                # # Plot only utility
+                # plot_utility_vs_aprime(rho_i, a_i, opt_u_itp, opt_c_itp, opt_l_itp, a_grid, max_a_prime, hh_parameters)
 
-            # Store results: Value and policy function
-            V_new[rho_i, a_i] = -Optim.minimum(results[rho_i, a_i])
-            policy_a[rho_i, a_i] = Optim.minimizer(results[rho_i, a_i]) 
+                # obj_values = [
+                #     (opt_u_itp[rho_i, a_i](a_p))
+                #     for a_p in a_prime_values
+                # ]
+                # # Plot 
+                # plot(a_prime_values, obj_values, title="Utility for ρ=$(rho_grid[rho_i]), a=$(a_grid[a_i])",
+                #      xlabel="Future Assets (a')", ylabel="Utility", lw=2, legend=false)
+
+
+                # # Plot only discounted continuation value
+                # plot_interpolation_vs_knots(V_guess, pi_rho, rho_grid, a_grid, rho_level = 7)
+
+                # obj_values = [
+                #     (itp_cont_wrap(rho_grid[rho_i], a_p))
+                #     for a_p in a_prime_values
+                # ]
+
+                # # Plot the objective function
+                # plot(a_prime_values, obj_values, title="Continuation value for ρ=$(rho_grid[rho_i]), a=$(a_grid[a_i])",
+                #      xlabel="Future Assets (a')", ylabel="Discounted continuation Value", lw=2, legend=false)
+
+                # # Plot objective
+                # obj_values = [
+                #     (opt_u_itp[rho_i, a_i](a_p) + hh_parameters.beta * itp_cont_wrap(rho_grid[rho_i], a_p))
+                #     for a_p in a_prime_values
+                # ]
+
+                # # Plot the objective function
+                # plot(a_prime_values, obj_values, title="Objective Function for ρ=$(rho_grid[rho_i]), a=$(a_grid[a_i])",
+                #      xlabel="Future Assets (a')", ylabel="Objective Value", lw=2, legend=false)
+
+
+                # Define and optimize the objective function
+                results[rho_i, a_i] = optimize(a_prime -> -(opt_u_itp[rho_i, a_i](a_prime) + hh_parameters.beta * itp_cont_wrap(rho_grid[rho_i], a_prime)), 
+                                            gpar.a_min, max_a_prime[rho_i, a_i], 
+                                            GoldenSection()) 
+
+                # Store results: Value and policy function
+                V_new[rho_i, a_i] = -Optim.minimum(results[rho_i, a_i])
+                policy_a[rho_i, a_i] = Optim.minimizer(results[rho_i, a_i]) 
             end
         end
 

@@ -42,6 +42,17 @@ hh_parameters = HHParams(
 # Labor productivity - Li(2013) - TBM
 rho_grid = [0.1805, 0.3625, 0.8127, 1.8098, 3.8989, 8.4002, 18.0980]
 
+# Testing other grids
+
+rho_grid1 = [1.1805, 1.3625, 1.8127, 2.8098, 3.8989, 8.4002, 18.0980]
+rho_grid2 = [1.1805, 2.3625, 5.8127, 6.8098, 8.8989, 12.4002, 18.0980]
+rho_grid3 = [1.1805, 2.3625, 5.8127, 7.8098, 10.8989, 15.4002, 18.0980]
+rho_grid4 = [2.1805, 4.3625, 7.8127, 10.8098, 15.8989, 21.4002, 28.0980]
+rho_grid5 = exp.(range(log(3), log(20), length=7))    # Spread on log scale
+rho_grid6 = range(2, 20, length=7)                    # Uniformly spaced
+
+
+
 # Labor productivity transition matrix
 pi_rho = [
     0.9687 0.0313 0 0 0 0 0;

@@ -34,13 +34,39 @@ function get_Cexp(rho, w, r, l, a, a_prime, taxes)
 end
 
 # Compute optimal labor - from analytical solution 
-function get_opt_labor_from_FOC(c, rho, w, taxes, hh_parameters)
+function get_opt_labor_from_FOC(c, rho, w, taxes, hh_parameters; neg_consumption_error = false)
     # num = (taxes.lambda_y * (1 - taxes.tau_y) * (rho * w)^(1 - taxes.tau_y)) * c^(-hh_parameters.rra) 
     # den = (hh_parameters.phi * (2 - taxes.lambda_c * (1 - taxes.tau_c) * c ^ (-taxes.tau_c)))
-    l_star = (((taxes.lambda_y * (1 - taxes.tau_y) * (rho * w)^(1 - taxes.tau_y)) * c^(-hh_parameters.rra)) / #Numerator
-             (hh_parameters.phi * (2 - taxes.lambda_c * (1 - taxes.tau_c) * c ^ (-taxes.tau_c))) #Denominator
-             ) ^ (1 / (hh_parameters.frisch + taxes.tau_y)) # Exponent
+    if neg_consumption_error && c < 0 
+        throw("Passed negative consumption to labor FOC!")
+    else
+        l_star = (((taxes.lambda_y * (1 - taxes.tau_y) * (rho * w)^(1 - taxes.tau_y)) * c^(-hh_parameters.rra)) / #Numerator
+        (hh_parameters.phi * (2 - taxes.lambda_c * (1 - taxes.tau_c) * c ^ (-taxes.tau_c))) #Denominator
+        ) ^ (1 / (hh_parameters.frisch + taxes.tau_y)) # Exponent
+    end
     return l_star
 end
+
+function get_opt_labor_with_zero_consumption(rho, a, a_prime, w, taxes; neg_labor_warning = true)
+    # Compute optimal labor in case of zero consumption 
+    # Derived from λ_y * (ρwℓ)^(1 - τ_y) + (1 + (1 - τ_k)r)a - a' = 0
+    l_star = ((1 / (rho * w)) * ((a_prime - (1 + net_r) * a) / taxes.lambda_y) ^ (1 / (1 - taxes.tau_y)))
+
+    # Check if negative labor is implied
+    if neg_labor_warning && l_star < 0
+        @warn ("Negative labor implied even with zero consumption! Household cannot pay interests on debt!")
+    end
+    return l_star
+end
+
+function get_opt_c_with_max_labor(rho, a, a_prime, w, net_r, taxes; max_labor = 1)
+    # Compute optimal labor in case of zero consumption 
+    # Derived solving c + T_c(c) =  λ_y * (ρw*max_labor)^(1 - τ_y) + (1 + (1 - τ_k)r)a - a'
+    rhs = taxes.lambda_y * (rho * w * max_labor) ^ (1 - taxes.tau_y) + (1 + net_r) * a - a_prime
+
+    # Solve for consumption and return
+    return find_c_feldstein(rhs, taxes.lambda_c, taxes.tau_c; notax_upper=nothing)
+end
+
 
 

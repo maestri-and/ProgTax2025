@@ -57,15 +57,33 @@ l_grid = makeGrid(gpar.l_min, gpar.l_max, gpar.N_l)
 # Labor productivity - Defined in model_parameters.jl
 # rho_grid = rho_grid
 
-# Taxation parameters
-# taxes = Taxes(0.7, 0.2, # lambda_y, tau_y, 
-#             0.7, 0.136, #lambda_c, tau_c,
+# # Taxation parameters - baseline calibration
+taxes = Taxes(0.7, 0.2, # lambda_y, tau_y, 
+            0.7, 0.136, #lambda_c, tau_c,
+            0.0 # tau_k
+            )
+
+# # Taxation parameters - low progressivity
+# taxes = Taxes(0.7, 0.001, # lambda_y, tau_y, 
+#             0.7, 0.005, #lambda_c, tau_c,
 #             0.0 # tau_k
 #             )
 
+# Taxation parameters - high progressivity
+# taxes = Taxes(0.7, 0.5, # lambda_y, tau_y, 
+#             0.7, 0.3, #lambda_c, tau_c,
+#             0.2 # tau_k
+#             )
+
+# # Flat-rate taxes
+# taxes = Taxes(0.7, 0.0,     # lambda_y, tau_y, 
+#             0.2, 0.0,       # lambda_c, tau_c,
+#             0.0             # tau_k
+#             )
+
 # No taxes - λ=1, τ=0
-taxes = Taxes(0.7, 0.2,     # lambda_y, tau_y, 
-            0.7, 0.136,       # lambda_c, tau_c,
+taxes = Taxes(1.0, 0.0,     # lambda_y, tau_y, 
+            1.0, 0.0,       # lambda_c, tau_c,
             0.0             # tau_k
             )
 
@@ -86,15 +104,18 @@ net_r = (1 - taxes.tau_k)r
 println("Solving budget constraint...")
 
 ## INTERPOLATE TO SAVE MEMORY ## #TBM - can be optimised
-hh_labor_taxes, hh_consumption, hh_consumption_tax = compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, taxes)
+hh_labor_taxes, hh_consumption, hh_consumption_tax = compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, taxes);
 
-# cExp2cInt = interp_consumption(hh_consumption, hh_consumption_plus_tax)
+# cExp2cInt = interp_consumption(hh_consumption, hh_consumption_plus_tax);
+
+# plot_1D_itp_vs_data(cExp2cInt, vec(hh_consumption_plus_tax), vec(hh_consumption); x_range = (-1, 5))
 
 #################### RANDOM CHECK - BUDGET CONSTRAINT HOLDS ###################
 
 test_budget_constraint()
 
 #---------# PERFORM VFI - INTERPOLATED VERSION EXPLOITING LABOR FOC #---------#
+start = now()
 
 println("Pinning down optimal labor and consumption using labor FOC...")
 
@@ -102,7 +123,7 @@ println("Pinning down optimal labor and consumption using labor FOC...")
 # optimal consumption (and therefore utility level) for each (ρ, a, a')
 # Using labor FOC and budget constraint 
 
-opt_c_FOC, opt_l_FOC = find_opt_cons_labor(rho_grid, a_grid, w, net_r, taxes, hh_parameters, gpar) #TBM - can be optimised
+opt_c_FOC, opt_l_FOC = find_opt_cons_labor(rho_grid, a_grid, w, net_r, taxes, hh_parameters, gpar, enforce_labor_cap = true, replace_neg_consumption = true); 
 
 # --- Interpolate Optimal Labor and Consumption as functions of a' for each (ρ, a) ---#
 opt_c_itp, opt_l_itp, opt_u_itp, max_a_prime = interp_opt_funs(a_grid, opt_c_FOC, opt_l_FOC, gpar, hh_parameters);
@@ -113,31 +134,35 @@ println("Launching VFI...")
 valuef, policy_a = intVFI_FOC_parallel(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, hh_parameters, gpar, comp_params)
 
 # Interpolate value function and policy function for assets 
-valuef_int = Spline2D(rho_grid, a_grid, valuef)
-policy_a_int = Spline2D(rho_grid, a_grid, policy_a)
+valuef_int = Spline2D_adj(rho_grid, a_grid, valuef)
+policy_a_int = Spline2D_adj(rho_grid, a_grid, policy_a)
 
 # Extract policy functions for labor and consumption using FOC-derived interpolations
 policy_l = compute_policy_matrix(opt_l_itp, policy_a_int, a_grid, rho_grid)
-policy_l_int = Spline2D(rho_grid, a_grid, policy_l)
+policy_l_int = Spline2D_adj(rho_grid, a_grid, policy_l)
+# policy_l_int = interpolate((rho_grid, a_grid), policy_l, Gridded(Linear()))
 
 policy_c = compute_policy_matrix(opt_c_itp, policy_a_int, a_grid, rho_grid)
-policy_c_int = Spline2D(rho_grid, a_grid, policy_c)
+policy_c_int = Spline2D_adj(rho_grid, a_grid, policy_c)
 
+
+time = now() - start 
+println("Time spent: $time")
 
 # --- Plot value and policy functions --- # 
 plot_value_function(valuef, a_grid, rho_grid)
-savefig("output/preliminary/policy_funs/cont/value_function_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
+# savefig("output/preliminary/policy_funs/cont/value_function_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
 
 plot_policy_function(policy_a_int, a_grid, rho_grid, policy_type = "assets")
-savefig("output/preliminary/policy_funs/cont/asset_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
+# savefig("output/preliminary/policy_funs/cont/asset_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
 
 plot_policy_function(policy_l_int, a_grid, rho_grid, policy_type = "labor")
-savefig("output/preliminary/policy_funs/cont/labor_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
+# savefig("output/preliminary/policy_funs/cont/labor_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
 
-plot_policy_function(policy_c_int, a_grid, rho_grid, policy_type = "consumption")
-savefig("output/preliminary/policy_funs/cont/cons_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
+plot_policy_function(policy_c, a_grid, rho_grid, policy_type = "consumption")
+# savefig("output/preliminary/policy_funs/cont/cons_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
 
-plot_policy_function(policy_c, a_grid, rho_grid, policy_type="assets")
+plot_policy_function(policy_a, a_grid, rho_grid, policy_type="assets")
 
 # Adjust grids
 
@@ -145,7 +170,7 @@ plot_policy_function(policy_c, a_grid, rho_grid, policy_type="assets")
 #######################################################################################
 
 # Store the VFI guess 
-SaveMatrix(V_new, "output/preliminary/V_guess_matrix_a" * "$gpar.N_a" * "_l" * "$gpar.N_l" * ".txt")
+# SaveMatrix(V_new, "output/preliminary/V_guess_matrix_a" * "$gpar.N_a" * "_l" * "$gpar.N_l" * ".txt")
 # V_guess_read = ReadMatrix("output/preliminary/V_guess_matrix.txt")
 
 # Save the figure
@@ -154,3 +179,4 @@ SaveMatrix(V_new, "output/preliminary/V_guess_matrix_a" * "$gpar.N_a" * "_l" * "
 # Save the figure
 # savefig(pfl, "output/preliminary/labor_policy_l$gpar.N_l" * "_a$gpar.N_a" * ".png")
 
+# TBM - capital taxation should act only if household is saving (not on borrowing)?

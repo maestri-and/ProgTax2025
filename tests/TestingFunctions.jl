@@ -205,8 +205,6 @@ end
 ###############################################################################
 
 
-
-
 # Function to perform benchmarking and save results
 function benchmark_grid_size(filename::String, n::Int)
     open(filename, "w") do file
@@ -299,82 +297,9 @@ function evaluate_interpolation(data_points, interpolator, fixed_indices; figure
 end
 
 ###############################################################################
-################################# OTHER TESTS #################################
+############################# VFI SOLUTION TESTS ##############################
 ###############################################################################
 
-
-# Plotting dummy 3D utility function 
-
-
-# Function to plot the utility function and return the utility matrix and maximum point
-function plot_utility_function(rra, phi, frisch; normalise = false, c_range = (0.1, 5.0), l_range = (0.1, 5.0), num_points = 100)
-    # Generate a range of consumption and labor values
-    c_values = range(c_range..., length = num_points)
-    l_values = range(l_range..., length = num_points)
-
-    # Create a grid of consumption and labor values
-    utility_matrix = [get_utility_hh(c, l, hh_parameters, normalise = normalise) for c in c_values, l in l_values]
-
-    # Transpose the utility matrix for correct plotting
-    utility_matrix = utility_matrix'
-
-    # Plot the utility function
-    p = plot(c_values, l_values, utility_matrix, st = :surface, xlabel = "Consumption (c)", ylabel = "Labor (l)", zlabel = "Utility", title = "Utility Function")
-
-    # Find the maximum utility value and its coordinates
-    max_utility = maximum(utility_matrix)
-    max_index = argmax(utility_matrix)
-    max_c = c_values[max_index[1]]
-    max_l = l_values[max_index[2]]
-
-    println("Maximum utility: $max_utility at (c = $max_c, l = $max_l)")
-
-    # Return utility matrix and plot
-    return utility_matrix, p, (max_utility, max_c, max_l)
-end
-
-# # Example usage
-# ut_matrix, utility_plot, max_point = plot_utility_function(2.0, 1.0, 0.5; normalise = false)
-
-# utility_plot
-# max_point
-
-# Function to plot the utility function and return the utility matrix and maximum point
-# Imposing budget constraint to hold for given a, rho, a'
-
-function plot_utility_with_bc(rra, phi, frisch; a_i = 10, a_prime_i = 10, rho_i = 3, normalise = false, l_grid = l_grid)
-    # Choose labor grid
-    l_values = l_grid
-
-    # Compute household taxes, consumption, and utility
-    @elapsed _, hh_consumption, _, hh_utility = compute_hh_taxes_consumption_utility_(a_grid,
-                                                                    gpar.N_a, rho_grid, l_values, w, r, taxes, hh_parameters)
-
-    # Fix one level of a and a'
-    c_values = hh_consumption[:, rho_i, a_i, a_prime_i]
-    utility_values = hh_utility[:, rho_i, a_i, a_prime_i]
-
-    # Plot consumption and labor
-    p1 = plot(l_values, c_values, xlabel = "Labor (l)", ylabel = "Consumption (c)", title = "Consumption and Utility vs. Labor - Fixed ρ, a and a'", label = "Consumption")
-
-    # Plot utility and labor
-    p2 = plot(l_values, utility_values, xlabel = "Labor (l)", ylabel = "Utility", label = "Utility", linecolor = :red)
-
-    # Combine plots
-    p = plot(p1, p2, layout = (2, 1), size = (800, 600))
-
-    # Find the maximum utility value and its coordinates
-    max_utility = maximum(utility_values)
-    max_index = argmax(utility_values)
-    max_c = c_values[max_index]
-    max_l = l_values[max_index]
-
-    println("Maximum utility: $max_utility at (c = $max_c, l = $max_l)")
-
-    # Return utility values and plot
-    return utility_values, p, (max_utility, max_c, max_l)
-end
-
-# utility_values, p, (max_utility, max_c, max_l) = plot_utility_with_bc(2.0, 1.0, 0.5; a_i = 10, a_prime_i = 10, rho_i = 3, normalise = false, l_grid = l_grid)
-# p #Display graphs
-# savefig(p, "output/preliminary/utility_consumption_labor_budget_constraint.png")
+#------------------------# FEASIBILITY CONSTRAINTS #--------------------------#
+# Given solution policy functions, ensure that consumption and labor are within
+# feasibility boundaries - c >= 0, 0 <= l <= 1
