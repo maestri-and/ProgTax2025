@@ -49,6 +49,7 @@ function find_c_feldstein(k, lambda_c, tau_c; notax_upper=nothing)
 end
 
 # TBM
+# Can be more efficient than find_c_feldstein in case there are a lot of non-feasible choices
 function imp_find_c_feldstein(k, lambda_c, tau_c; notax_upper=nothing)
     # Check the tax-exemption condition upfront to avoid unnecessary allocations
     if notax_upper !== nothing && k <= notax_upper
@@ -101,24 +102,7 @@ end
 # Sharp discontinuity - f(c) tends to minus infinity for c going to zero
 # from both left and right - makes this an ill-conditioned root-finding problem
 
-# Strategy: use Secant method, if convergence fails or result found is negative,
-# try bisection - if this fails as well, throw error
-# function robust_root_FOC(f, lower::Float64, upper::Float64; secant_guess=1.0)
-#     try
-#         # First try: Secant method (fast but may fail near sharp kinks)
-#         return find_zero(f, secant_guess, Order1())
-#     catch e1
-#         # @warn "Secant method failed: $e1"
-#         try
-#             # Second try: Bisection (robust if sign change exists)
-#             return find_zero(f, (lower, upper), Bisection())
-#         catch e2
-#             @error "All methods failed: $e2"
-#             rethrow(e2)
-#         end
-#     end
-# end
-
+# Strategy: use Secant method, if convergence fails or result found is negative, try bisection 
 function robust_root_FOC(f, lower::Float64, upper::Float64; secant_guess=1.0)
     x_star = NaN
     try
@@ -135,29 +119,23 @@ function robust_root_FOC(f, lower::Float64, upper::Float64; secant_guess=1.0)
 end
 
 
-function flexible_root_finder(f::Function, lower2::Float64, lower1::Float64, upper::Float64; secant_guess=1.0)
-    x_star = NaN
+# Function to extract stable distribution from transition matrix 
 
-    # First: fast attempt with Order1
-    try
-        x_star = find_zero(f, secant_guess, Roots.Order1())
-        if x_star < 0
-            return find_zero(f, (lower1, upper), Roots.Brent())
+function find_stable_dist(transition_matrix; max_iter = 5000)
+    # Extract dimensions of transition matrix to build new array
+    stable_dist = ones(size(transition_matrix)[1])/size(transition_matrix)[1]
+    temp = similar(stable_dist)
+    p = transpose(transition_matrix)
+    # Iterate until convergence
+    for iter in 1:max_iter
+        temp .= p * stable_dist
+        if maximum(abs, temp .- stable_dist) < 1e-9
+            println("Stable distribution: found solution after $iter iterations")
+            return temp
+        elseif iter == max_iter
+            error("No solution found after $iter iterations")
         end
-    catch
-        # Try Brent if signs allow it
-        try
-            x_star = find_zero(f, (lower1, upper), Roots.Brent())
-        catch
-            # continue to fallback
-        end
-
-        # Final fallback
-        try
-            x_star = find_zero(f, (lower2, upper), Roots.Bisection())
-        catch 
-            # throw(ErrorException("All root-finding methods failed: $e"))
-        end
+        stable_dist .= temp
     end
-    return x_star
 end
+

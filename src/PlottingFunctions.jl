@@ -37,7 +37,7 @@ function plot_utility_function(rra, phi, frisch; normalise = false, c_range = (0
     l_values = range(l_range..., length = num_points)
 
     # Create a grid of consumption and labor values
-    utility_matrix = [get_utility_hh(c, l, hh_parameters, normalise = normalise) for c in c_values, l in l_values]
+    utility_matrix = [get_utility_hh(c, l, hhpar, normalise = normalise) for c in c_values, l in l_values]
 
     # Transpose the utility matrix for correct plotting
     utility_matrix = utility_matrix'
@@ -72,7 +72,7 @@ function plot_utility_with_bc(rra, phi, frisch; a_i = 10, a_prime_i = 10, rho_i 
 
     # Compute household taxes, consumption, and utility
     @elapsed _, hh_consumption, _, hh_utility = compute_hh_taxes_consumption_utility_(a_grid,
-                                                                    gpar.N_a, rho_grid, l_values, w, r, taxes, hh_parameters)
+                                                                    gpar.N_a, rho_grid, l_values, w, r, taxes, hhpar)
 
     # Fix one level of a and a'
     c_values = hh_consumption[:, rho_i, a_i, a_prime_i]
@@ -254,7 +254,7 @@ end
 ###############################################################################
 
 
-function plot_utility_implied_by_labor_FOC(rho, w, taxes, hh_parameters)
+function plot_utility_implied_by_labor_FOC(rho, w, taxes, hhpar)
     # Define the consumption grid
     c_grid = range(-5.0, 5.0, length=50)  # Reduce size for performance
     l_grid = range(0.0, 1.0, length=50)  # Define labor grid
@@ -264,7 +264,7 @@ function plot_utility_implied_by_labor_FOC(rho, w, taxes, hh_parameters)
     L = repeat(l_grid', length(c_grid), 1)  # 2D matrix for l values
 
     # Compute utility for each (c, l) pair
-    U = [get_utility_hh(c, l, hh_parameters) for (c, l) in zip(C, L)]
+    U = [get_utility_hh(c, l, hhpar) for (c, l) in zip(C, L)]
 
     # Create interactive 3D plot
     fig = Figure(size=(800, 600))
@@ -275,7 +275,7 @@ function plot_utility_implied_by_labor_FOC(rho, w, taxes, hh_parameters)
     display(fig)  # Show the figure
 end
 
-# plot_utility_implied_by_labor_FOC(rho_grid[1], 1, taxes, hh_parameters)
+# plot_utility_implied_by_labor_FOC(rho_grid[1], 1, taxes, hhpar)
 
 
 function plot_opt_c_l_from_FOC(a_i, opt_c_itp, opt_l_itp, a_grid, rho_grid)
@@ -357,8 +357,6 @@ function plot_value_function(V_new, a_grid, rho_grid; taxes=taxes)
     return p
 end
 
-using Interpolations
-
 function plot_policy_function(policy_data, a_grid, rho_grid; policy_type="assets", taxes=taxes)
     """
     Generic function to plot policy functions (assets, labor, or consumption), detecting whether
@@ -413,8 +411,58 @@ function plot_policy_function(policy_data, a_grid, rho_grid; policy_type="assets
     return p
 end
 
+function plot_household_policies(valuef, policy_a_int, policy_l_int, policy_c,
+                                 a_grid, rho_grid, taxes;
+                                 plot_types = ["value", "assets", "labor", "consumption"],
+                                 save_plots = false)
 
+    """
+    Plots household value and policy functions.
 
+    Args:
+        valuef         : Value function matrix (ρ × a)
+        policy_a_int   : Interpolated asset policy (Spline2D)
+        policy_l_int   : Interpolated labor policy (Spline2D)
+        policy_c       : Consumption policy matrix (ρ × a)
+        a_grid         : Asset grid
+        rho_grid       : Productivity grid
+        taxes          : Struct containing tax parameters
+        plot_types     : Vector of strings selecting which plots to show
+        save_plots     : If true, saves plots to predefined file paths
+    """
+
+    if "value" in plot_types
+        p_val = plot_value_function(valuef, a_grid, rho_grid)
+        display(p_val)
+        if save_plots
+            savefig(p_val, "output/preliminary/policy_funs/cont/value_function_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
+        end
+    end
+
+    if "assets" in plot_types
+        p_a = plot_policy_function(policy_a_int, a_grid, rho_grid, policy_type = "assets")
+        display(p_a)
+        if save_plots
+            savefig(p_a, "output/preliminary/policy_funs/cont/asset_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
+        end
+    end
+
+    if "labor" in plot_types
+        p_l = plot_policy_function(policy_l_int, a_grid, rho_grid, policy_type = "labor")
+        display(p_l)
+        if save_plots
+            savefig(p_l, "output/preliminary/policy_funs/cont/labor_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
+        end
+    end
+
+    if "consumption" in plot_types
+        p_c = plot_policy_function(policy_c, a_grid, rho_grid, policy_type = "consumption")
+        display(p_c)
+        if save_plots
+            savefig(p_c, "output/preliminary/policy_funs/cont/cons_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
+        end
+    end
+end
 
 ###############################################################################
 ################### 5. PLOTTING ??? ####################

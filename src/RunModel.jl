@@ -56,6 +56,8 @@ l_grid = makeGrid(gpar.l_min, gpar.l_max, gpar.N_l)
 
 # Labor productivity - Defined in model_parameters.jl
 # rho_grid = rho_grid
+# Extract stable distribution from transition matrix
+rho_dist = find_stable_dist(pi_rho)
 
 # # Taxation parameters - baseline calibration
 taxes = Taxes(0.7, 0.2, # lambda_y, tau_y, 
@@ -63,109 +65,102 @@ taxes = Taxes(0.7, 0.2, # lambda_y, tau_y,
             0.0 # tau_k
             )
 
-# # Taxation parameters - low progressivity
-# taxes = Taxes(0.7, 0.001, # lambda_y, tau_y, 
-#             0.7, 0.005, #lambda_c, tau_c,
-#             0.0 # tau_k
-#             )
-
-# Taxation parameters - high progressivity
-# taxes = Taxes(0.7, 0.5, # lambda_y, tau_y, 
-#             0.7, 0.3, #lambda_c, tau_c,
-#             0.2 # tau_k
-#             )
-
-# # Flat-rate taxes
-# taxes = Taxes(0.7, 0.0,     # lambda_y, tau_y, 
-#             0.2, 0.0,       # lambda_c, tau_c,
-#             0.0             # tau_k
-#             )
-
-# No taxes - λ=1, τ=0
-taxes = Taxes(1.0, 0.0,     # lambda_y, tau_y, 
-            1.0, 0.0,       # lambda_c, tau_c,
-            0.0             # tau_k
-            )
+taxes = Taxes(1.0, 0.0, # lambda_y, tau_y, 
+1.0, 0.0, #lambda_c, tau_c,
+0.0 # tau_k
+)
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
-#-----------------------# 2. VALUE FUNCTION ITERATION #-----------------------#
+#----------------------------# 2. SOLVING MODEL #-----------------------------#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
-# Temporary (TBM)
-w = 1
-r = 0.05
-net_r = (1 - taxes.tau_k)r
+function ComputeEquilibrium(
+    a_grid, rho_grid, l_grid,
+    gpar, hhpar, fpar, taxes,
+    pi_rho, comp_params
+)
+    #--- Initial bounds for interest rate (r) for bisection method
+    r_low = -fpar.delta
+    r_high = 1 / hhpar.beta - 1
+    r_mid = (r_low + r_high) / 2
+    ω = 0.5  # Weight for dampened update of r
 
+    #--- Wage implied by firm's FOC given r
+    opt_wage(r) = (1 - fpar.alpha) * fpar.tfp *
+                  ((fpar.alpha * fpar.tfp / (r + fpar.delta)) ^ (fpar.alpha / (1 - fpar.alpha)))
+    w = opt_wage(r_mid)
 
-#### COMPUTING TAXES, CONSUMPTION AND UTILITY FOR EACH STATE-CHOICE POINT #####
+    #--- Begin equilibrium loop
+    @elapsed for iter in 1:comp_params.ms_max_iter
 
-println("Solving budget constraint...")
+        ###### 1. Household Problem ######
+        (hh_labor_taxes, hh_consumption, hh_consumption_tax,
+         opt_c_FOC, opt_l_FOC, valuef, policy_a,
+         policy_l, policy_c) = SolveHouseholdProblem(
+             a_grid, rho_grid, l_grid, gpar, w, r_mid, taxes,
+             hhpar, pi_rho, comp_params
+         )
 
-## INTERPOLATE TO SAVE MEMORY ## #TBM - can be optimised
-hh_labor_taxes, hh_consumption, hh_consumption_tax = compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, taxes);
+        ###### 2. Stationary Distribution ######
+        stat_dist = stationary_distribution(
+            a_grid, pi_rho, policy_a, gpar;
+            tol = 1e-10, max_iter = 10_000
+        )
 
-# cExp2cInt = interp_consumption(hh_consumption, hh_consumption_plus_tax);
+        ###### 3. Aggregates ######
+        asset_supply = sum(stat_dist * a_grid)  # asset by productivity
+        labor_supply = sum(stat_dist .* policy_l)
+        consumption_demand = sum(stat_dist .* policy_c)
 
-# plot_1D_itp_vs_data(cExp2cInt, vec(hh_consumption_plus_tax), vec(hh_consumption); x_range = (-1, 5))
+        ###### 4. Firm's Capital Demand from FOC ######
+        asset_demand = ((fpar.alpha * fpar.tfp) / (r_mid + fpar.delta)) ^
+                       (1 / (1 - fpar.alpha)) * labor_supply
 
-#################### RANDOM CHECK - BUDGET CONSTRAINT HOLDS ###################
+        ###### 5. Check for Market Clearing ######
+        K_error = asset_demand - asset_supply
 
-test_budget_constraint()
+        println("Iter $iter: r = $(round(r_mid, digits=5)), w = $(round(w, digits=5)), K_supply = $(round(asset_supply, digits=5)), K_demand = $(round(asset_demand, digits=5)), error = $(round(K_error, digits=5))")
 
-#---------# PERFORM VFI - INTERPOLATED VERSION EXPLOITING LABOR FOC #---------#
-start = now()
+        if abs(K_error) < comp_params.ms_tol
+            println("✅ Equilibrium found: r = $r_mid, w = $w after $iter iterations")
+            return r_mid, w, stat_dist, valuef, policy_a, policy_l, policy_c
+        end
 
-println("Pinning down optimal labor and consumption using labor FOC...")
+        ###### 6. Bisection Update of Interest Rate ######
+        if K_error > 0
+            r_low = r_mid  # Excess demand → raise r
+        else
+            r_high = r_mid  # Excess supply → lower r
+        end
 
-# Interpolate functions that define optimal labor supply and 
-# optimal consumption (and therefore utility level) for each (ρ, a, a')
-# Using labor FOC and budget constraint 
+        r_new = ω * r_mid + (1 - ω) * ((r_low + r_high) / 2)
+        r_mid = r_new
+        w = opt_wage(r_mid)
+    end
 
-opt_c_FOC, opt_l_FOC = find_opt_cons_labor(rho_grid, a_grid, w, net_r, taxes, hh_parameters, gpar, enforce_labor_cap = true, replace_neg_consumption = true); 
+    error("❌ Equilibrium not found within max iterations.")
+end
 
-# --- Interpolate Optimal Labor and Consumption as functions of a' for each (ρ, a) ---#
-opt_c_itp, opt_l_itp, opt_u_itp, max_a_prime = interp_opt_funs(a_grid, opt_c_FOC, opt_l_FOC, gpar, hh_parameters);
+@elapsed r, w, stat_dist, valuef, policy_a, policy_l, policy_c = ComputeEquilibrium(a_grid, rho_grid, l_grid, 
+                                                                            gpar, hhpar, fpar, taxes,
+                                                                            pi_rho, comp_params
+                                                                        )
 
-# --- Launch VFI ---#
-println("Launching VFI...")
+heatmap(stat_dist, xlabel="a index", ylabel="ρ index")
 
-valuef, policy_a = intVFI_FOC_parallel(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, hh_parameters, gpar, comp_params)
+# Interpolate and return value function and policy functions
+valuef_int, policy_a_int, policy_c_int, policy_l_int = interpolate_policy_funs(valuef, policy_a, policy_c, policy_l, rho_grid, a_grid);
 
-# Interpolate value function and policy function for assets 
-valuef_int = Spline2D_adj(rho_grid, a_grid, valuef)
-policy_a_int = Spline2D_adj(rho_grid, a_grid, policy_a)
+# Plot policy functions if necessary
+plot_household_policies(valuef, policy_a, policy_l, policy_c,
+                                 a_grid, rho_grid, taxes;
+                                 plot_types = ["value", "assets", "labor", "consumption"],
+                                 save_plots = false)
 
-# Extract policy functions for labor and consumption using FOC-derived interpolations
-policy_l = compute_policy_matrix(opt_l_itp, policy_a_int, a_grid, rho_grid)
-policy_l_int = Spline2D_adj(rho_grid, a_grid, policy_l)
-# policy_l_int = interpolate((rho_grid, a_grid), policy_l, Gridded(Linear()))
-
-policy_c = compute_policy_matrix(opt_c_itp, policy_a_int, a_grid, rho_grid)
-policy_c_int = Spline2D_adj(rho_grid, a_grid, policy_c)
-
-
-time = now() - start 
-println("Time spent: $time")
-
-# --- Plot value and policy functions --- # 
-plot_value_function(valuef, a_grid, rho_grid)
-# savefig("output/preliminary/policy_funs/cont/value_function_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
-
-plot_policy_function(policy_a_int, a_grid, rho_grid, policy_type = "assets")
-# savefig("output/preliminary/policy_funs/cont/asset_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
-
-plot_policy_function(policy_l_int, a_grid, rho_grid, policy_type = "labor")
-# savefig("output/preliminary/policy_funs/cont/labor_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
-
-plot_policy_function(policy_c, a_grid, rho_grid, policy_type = "consumption")
-# savefig("output/preliminary/policy_funs/cont/cons_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
-
-plot_policy_function(policy_a, a_grid, rho_grid, policy_type="assets")
 
 # Adjust grids
-
 
 #######################################################################################
 

@@ -7,12 +7,12 @@ struct hh
 end
 
 # Define household utility 
-function get_utility_hh(consumption, labor, hh_parameters; normalise = false)
+function get_utility_hh(consumption, labor, hhpar; normalise = false)
     # Compute households' utility - with normalisation if necessary 
     if normalise == true
-        return (consumption ^ (1 - hh_parameters.rra) - 1)/(1 - hh_parameters.rra) - hh_parameters.phi * (labor ^ (1 + hh_parameters.frisch) - 1)/(1 + hh_parameters.frisch)
+        return (consumption ^ (1 - hhpar.rra) - 1)/(1 - hhpar.rra) - hhpar.phi * (labor ^ (1 + hhpar.frisch) - 1)/(1 + hhpar.frisch)
     else
-        return (consumption ^ (1 - hh_parameters.rra))/(1 - hh_parameters.rra) - hh_parameters.phi * (labor ^ (1 + hh_parameters.frisch))/(1 + hh_parameters.frisch)
+        return (consumption ^ (1 - hhpar.rra))/(1 - hhpar.rra) - hhpar.phi * (labor ^ (1 + hhpar.frisch))/(1 + hhpar.frisch)
     end
 end
 
@@ -34,15 +34,15 @@ function get_Cexp(rho, w, r, l, a, a_prime, taxes)
 end
 
 # Compute optimal labor - from analytical solution 
-function get_opt_labor_from_FOC(c, rho, w, taxes, hh_parameters; neg_consumption_error = false)
-    # num = (taxes.lambda_y * (1 - taxes.tau_y) * (rho * w)^(1 - taxes.tau_y)) * c^(-hh_parameters.rra) 
-    # den = (hh_parameters.phi * (2 - taxes.lambda_c * (1 - taxes.tau_c) * c ^ (-taxes.tau_c)))
+function get_opt_labor_from_FOC(c, rho, w, taxes, hhpar; neg_consumption_error = false)
+    # num = (taxes.lambda_y * (1 - taxes.tau_y) * (rho * w)^(1 - taxes.tau_y)) * c^(-hhpar.rra) 
+    # den = (hhpar.phi * (2 - taxes.lambda_c * (1 - taxes.tau_c) * c ^ (-taxes.tau_c)))
     if neg_consumption_error && c < 0 
         throw("Passed negative consumption to labor FOC!")
     else
-        l_star = (((taxes.lambda_y * (1 - taxes.tau_y) * (rho * w)^(1 - taxes.tau_y)) * c^(-hh_parameters.rra)) / #Numerator
-        (hh_parameters.phi * (2 - taxes.lambda_c * (1 - taxes.tau_c) * c ^ (-taxes.tau_c))) #Denominator
-        ) ^ (1 / (hh_parameters.frisch + taxes.tau_y)) # Exponent
+        l_star = (((taxes.lambda_y * (1 - taxes.tau_y) * (rho * w)^(1 - taxes.tau_y)) * c^(-hhpar.rra)) / #Numerator
+        (hhpar.phi * (2 - taxes.lambda_c * (1 - taxes.tau_c) * c ^ (-taxes.tau_c))) #Denominator
+        ) ^ (1 / (hhpar.frisch + taxes.tau_y)) # Exponent
     end
     return l_star
 end

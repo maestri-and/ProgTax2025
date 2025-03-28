@@ -196,7 +196,7 @@ end
                     ######## FOR GIVEN (ρ, a, a') #########                    
 ###############################################################################
 
-function interp_opt_funs(a_grid, opt_c_FOC, opt_l_FOC, gpar, hh_parameters)
+function interp_opt_funs(a_grid, opt_c_FOC, opt_l_FOC, gpar, hhpar)
     # Create empty arrays to collect interpolating functions
     opt_c_itp = Array{Any}(undef, gpar.N_rho, gpar.N_a)
     opt_l_itp = Array{Any}(undef, gpar.N_rho, gpar.N_a)
@@ -215,7 +215,7 @@ function interp_opt_funs(a_grid, opt_c_FOC, opt_l_FOC, gpar, hh_parameters)
             opt_l_itp[rho_i, a_i] = piecewise_1D_interpolation(a_grid, opt_l_FOC[rho_i, a_i, :], spline=false, return_threshold=false)
 
             # Linear interpolation for utility
-            opt_u_itp[rho_i, a_i] = (a_prime) -> get_utility_hh(opt_c_itp[rho_i, a_i](a_prime), opt_l_itp[rho_i, a_i](a_prime), hh_parameters)
+            opt_u_itp[rho_i, a_i] = (a_prime) -> get_utility_hh(opt_c_itp[rho_i, a_i](a_prime), opt_l_itp[rho_i, a_i](a_prime), hhpar)
         end
     end
 
@@ -269,3 +269,15 @@ function Spline2D_adj(rho_grid, a_grid, matrix2d)
     max_val = maximum(matrix2d)
     return (ρ, a) -> clamp(itp(ρ, a), min_val, max_val)
 end
+
+
+function interpolate_policy_funs(valuef, policy_a, policy_c, policy_l, rho_grid, a_grid)
+    # Interpolate and return value function and policy functions
+    valuef_int = Spline2D_adj(rho_grid, a_grid, valuef)
+    policy_a_int = Spline2D_adj(rho_grid, a_grid, policy_a)
+    policy_c_int = Spline2D_adj(rho_grid, a_grid, policy_c)
+    policy_l_int = Spline2D_adj(rho_grid, a_grid, policy_l)
+    
+    return valuef_int, policy_a_int, policy_c_int, policy_l_int
+end
+

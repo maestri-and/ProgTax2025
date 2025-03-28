@@ -24,7 +24,6 @@ using LinearAlgebra
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
 # Households parameters
-# Utility
 struct HHParams
     beta         ::Float64        # Discount factor
     rra          ::Float64        # Relative risk-aversion coefficient
@@ -32,7 +31,7 @@ struct HHParams
     frisch       ::Float64        # Frisch elasticity of substitution - Ferriere et al. 2023
 end
 
-hh_parameters = HHParams(
+hhpar = HHParams(
     0.96,         # Discount factor    
     2.000,        # Relative risk-aversion coefficient
     85.00,        # Psi parameter - relative disutility of labor - Ferriere et al. 2023
@@ -43,14 +42,12 @@ hh_parameters = HHParams(
 rho_grid = [0.1805, 0.3625, 0.8127, 1.8098, 3.8989, 8.4002, 18.0980]
 
 # Testing other grids
-
 rho_grid1 = [1.1805, 1.3625, 1.8127, 2.8098, 3.8989, 8.4002, 18.0980]
 rho_grid2 = [1.1805, 2.3625, 5.8127, 6.8098, 8.8989, 12.4002, 18.0980]
 rho_grid3 = [1.1805, 2.3625, 5.8127, 7.8098, 10.8989, 15.4002, 18.0980]
 rho_grid4 = [2.1805, 4.3625, 7.8127, 10.8098, 15.8989, 21.4002, 28.0980]
 rho_grid5 = exp.(range(log(3), log(20), length=7))    # Spread on log scale
 rho_grid6 = range(2, 20, length=7)                    # Uniformly spaced
-
 
 
 # Labor productivity transition matrix
@@ -65,12 +62,33 @@ pi_rho = [
 ]
 
 
-# Government's decision problem parameters
+# Taxation
 
-sigma        = 2.000        # Risk aversion
-psi          = 0.050        # Probability of re-entry in capital markets
-tau          = 0.410        # Tax revenues over GDP - 
-g_star       = 0.680        # Nondiscretionary spending over tax revenues
+mutable struct Taxes
+    # Parameters for tax system
+
+    # Labor income tax - Feldstein
+    lambda_y::Float64
+    tau_y::Float64
+
+    # Consumption tax - Feldstein
+    lambda_c::Float64
+    tau_c::Float64
+
+    # Capital tax - Linear
+    tau_k::Float64
+end
+
+# Firm parameters
+struct FirmParams
+    alpha        ::Float64        # Capital share of income (Cobb-Douglas)
+    delta        ::Float64        # Depreciation rate
+    tfp          ::Float64        # Total factor productivity
+end
+
+fpar = FirmParams(1/3, 0.06, 1) # As in Ferriere et al. 2023
+
+# Government parameters
 
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
@@ -96,78 +114,21 @@ struct GridParams
 end
 
 
-gpar = GridParams(-1.000, 5.000, 50, # Assets
+gpar = GridParams(-1.000, 10.000, 100, # Assets
                     0.0, 1, 50,    # Labor
                     length(rho_grid) # Productivity 
                     )
 
-# Taxation
-# First minimal definition - TBM and vectorised
-
-# struct Taxes
-#     lambda_y::Float64
-#     tau_y::Vector{Float64}
-#     N_tau_y::Int
-#     lambda_c::Float64
-#     tau_c::Vector{Float64}
-#     N_tau_c::Int
-
-#     function Taxes(lambda_y::Float64, tau_y::Vector{Float64}, lambda_c::Float64, tau_c::Vector{Float64})
-#         new(lambda_y, tau_y, length(tau_y), lambda_c, tau_c, length(tau_c))
-#     end
-# end
-
-mutable struct Taxes
-    # Parameters for tax system
-
-    # Labor income tax - Feldstein
-    lambda_y::Float64
-    tau_y::Float64
-
-    # Consumption tax - Feldstein
-    lambda_c::Float64
-    tau_c::Float64
-
-    # Capital tax - Linear
-    tau_k::Float64
-end
-
-
-# tau_c_min   = 0            # Minimum degree of progressivity for consumption tax - Negative = Regressive, 0 = linear
-# tau_c_max   = 1            # Maximum degree of progressivity for consumption tax
-# N_tau_c     = 100          # Number of grid points for consumption tax progressivity
-
-# tau_y_min   = 0            # Minimum degree of progressivity for labor income tax - Negative = Regressive, 0 = linear
-# tau_y_max   = 1            # Maximum degree of progressivity for labor income tax
-# N_tau_y     = 100          # Number of grid points for labor income tax progressivity
-
 # Iterations and computations
 struct CompParams
-    vfi_max_iter::Int64
-    vfi_tol::Float64
+    vfi_max_iter    ::Int64
+    vfi_tol         ::Float64
+    ms_max_iter     ::Int64
+    ms_tol          ::Float64
 end
 
 
 comp_params = CompParams(
-    3000, 10^(-4)
+    3000, 10^(-4),      # VFI parameters
+    500, 10^(-6)      # Model solution parameters
 )
-
-
-### - ### OLD ### - ###
-
-# state_ex    = 3;              # Number of exogenous state variables
-# N           = 5;              # Number of points for each exogenous state in value function
-# N_ex        = N^state_ex;          # Numper of grid points for value function approximation
-# max_iter    = 550;          # Maximum number of iterations
-
-# convergence_q = 0.999;      # Smoothing of pricing schedule
-# convergence_v = 0.00;       # Smoothing of value function
-# val_lb        = 0.02;       # Lower bound for value function
-# lwb           = 0.75;       # Lower bound for debt grid
-# uwb           = 1.25;       # Upper bound for debt grid
-# start_conv    = 1;    
-# tolerance     = 10^(-4);
-
-###############################################################################
-#                        Bounds for exogenous state variables 
-###############################################################################

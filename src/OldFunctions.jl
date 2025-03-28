@@ -29,20 +29,20 @@
 
 # Original version - including also tax progressivity rates
 # @elapsed hh_labor_taxes, hh_consumption, hh_consumption_tax, hh_utility = compute_hh_taxes_consumption_utility(a_grid, 
-#                                                                     N_a, rho_grid, l_grid, w, r, taxes, hh_parameters);
+#                                                                     N_a, rho_grid, l_grid, w, r, taxes, hhpar);
 
 # Simplified version for one degree of progressivity of labor income and consumption taxes
 # @elapsed hh_labor_taxes, hh_consumption, hh_consumption_tax, hh_utility = compute_hh_taxes_consumption_utility_ME(a_grid, 
-#                                                                     N_a, rho_grid, l_grid, N_l, w, r, Tau_y, Tau_c, taxes, hh_parameters);
+#                                                                     N_a, rho_grid, l_grid, N_l, w, r, Tau_y, Tau_c, taxes, hhpar);
 
-# @benchmark compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, w, r, Tau_y, Tau_c, taxes, hh_parameters)
+# @benchmark compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, w, r, Tau_y, Tau_c, taxes, hhpar)
 
 # Split operations to save memory 
 # @elapsed T_y, hh_consumption = compute_consumption_grid(a_grid, rho_grid, l_grid, N_a, N_rho, N_l, w, r, Tau_y, Tau_c, taxes)
 # # Sys.free_memory() |> Base.format_bytes
 # # varinfo()
 # GC.gc()
-# @elapsed @views hh_consumption .= compute_utility_grid(hh_consumption, l_grid, hh_parameters)
+# @elapsed @views hh_consumption .= compute_utility_grid(hh_consumption, l_grid, hhpar)
 
 # # Rename for clarity 
 # hh_utility = hh_consumption
@@ -50,20 +50,20 @@
 # # Benchmark 
 # @benchmark begin
 #     T_y, hh_consumption = compute_consumption_grid(a_grid, rho_grid, l_grid, N_a, N_rho, N_l, w, r, Tau_y, Tau_c, taxes)
-#     @views hh_consumption .= compute_utility_grid(hh_consumption, l_grid, hh_parameters)
+#     @views hh_consumption .= compute_utility_grid(hh_consumption, l_grid, hhpar)
 # end
 
-# @benchmark compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, N_l, w, r, Tau_y, Tau_c, taxes, hh_parameters)
+# @benchmark compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, N_l, w, r, Tau_y, Tau_c, taxes, hhpar)
 
 #---------------------# PERFORM VFI - VECTORISED VERSION #--------------------#
 
-# @elapsed V_new, policy_a_index, policy_l_index = standardVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho)
-#@benchmark standardVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho)
+# @elapsed V_new, policy_a_index, policy_l_index = standardVFI(N_l, N_rho, N_a, comp_params, hhpar, hh_utility, pi_rho)
+#@benchmark standardVFI(N_l, N_rho, N_a, comp_params, hhpar, hh_utility, pi_rho)
 
-# @elapsed V_new, policy_a_index, policy_l_index = MemoryEffVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho;
+# @elapsed V_new, policy_a_index, policy_l_index = MemoryEffVFI(N_l, N_rho, N_a, comp_params, hhpar, hh_utility, pi_rho;
 #                         # V_guess_read = ReadMatrix("output/preliminary/V_guess_matrix.txt")
 #                         )
-# @benchmark MemoryEffVFI(N_l, N_rho, N_a, comp_params, hh_parameters, hh_utility, pi_rho)
+# @benchmark MemoryEffVFI(N_l, N_rho, N_a, comp_params, hhpar, hh_utility, pi_rho)
 
 
 
@@ -78,7 +78,7 @@
 # 5. Assets tomorrow
 # 6. Consumption tax progressivity degree
 
-function compute_hh_taxes_consumption_utility_full(a_grid, N_a, rho_grid, l_grid, w, r, taxes, hh_parameters)
+function compute_hh_taxes_consumption_utility_full(a_grid, N_a, rho_grid, l_grid, w, r, taxes, hhpar)
 
     #Compute gross labor income for each combination of labor and productivity
     y = (l_grid * rho_grid') .* w 
@@ -152,7 +152,7 @@ function compute_hh_taxes_consumption_utility_full(a_grid, N_a, rho_grid, l_grid
     # Compute household utility if consumption is positive
     @threads for l in 1:gpar.N_l        hh_utility[l, :, :, :, :, :] .= ifelse.(hh_consumption[l, :, :, :, :, :] .> 0,
                                                 get_utility_hh.(hh_consumption[l, :, :, :, :, :],
-                                                l_grid[l], hh_parameters.rra, hh_parameters.phi, hh_parameters.frisch), 
+                                                l_grid[l], hhpar.rra, hhpar.phi, hhpar.frisch), 
                                                 hh_utility[l, :, :, :, :, :])
     end
 
@@ -172,7 +172,7 @@ end
 # Speed 176.096 s
 # Memory 126.66 GB
 
-function standardVFI(gpar, comp_params, hh_parameters, hh_utility, pi_rho)
+function standardVFI(gpar, comp_params, hhpar, hh_utility, pi_rho)
     # Initialize the state-dependent value function guess (over rho and a)
     V_guess = zeros(gpar.N_rho, gpar.N_a)
     
@@ -204,7 +204,7 @@ function standardVFI(gpar, comp_params, hh_parameters, hh_utility, pi_rho)
         # Loop over labor options; the remaining maximization will be vectorized over (rho, a).
         for l in 1:gpar.N_l            # hh_utility[l, :, :, :] has shape (N_rho, N_a, N_a)
             # Reshape cont to (N_rho, 1, N_a) so it broadcasts along the a dimension.
-            candidate .= hh_utility[l, :, :, :] .+ hh_parameters.beta .* reshape(cont, (gpar.N_rho, 1, gpar.N_a))
+            candidate .= hh_utility[l, :, :, :] .+ hhpar.beta .* reshape(cont, (gpar.N_rho, 1, gpar.N_a))
             # For each current state (rho, a), maximize over the last dimension (j).
             # We'll loop over (rho, a) to extract both max values and argmax indices.
             for rho in 1:gpar.N_rho                for a in 1:gpar.N_a                    # findmax returns (max_value, index) for candidate[l, rho, a, :]
@@ -246,7 +246,7 @@ end
 # Speed 158.803 s
 # Memory 63.25 GB
 
-function MemoryEffVFI(gpar, comp_params, hh_parameters, hh_utility, pi_rho; V_guess_read = nothing)
+function MemoryEffVFI(gpar, comp_params, hhpar, hh_utility, pi_rho; V_guess_read = nothing)
     if isnothing(V_guess_read) 
         # Initialize the state-dependent value function guess (over ρ and a)
         V_guess = zeros(gpar.N_rho, gpar.N_a)
@@ -281,7 +281,7 @@ function MemoryEffVFI(gpar, comp_params, hh_parameters, hh_utility, pi_rho; V_gu
         # --- Step 2: For each labor option, compute candidate value functions ---
         # For each labor option l, hh_utility[l, :, :, :] has shape (N_rho, N_a, N_a),
         # and we add beta*cont (reshaped to (N_rho,1,N_a)) along the asset-choice dimension.
-        @inbounds for l in 1:gpar.N_l            @views candidate .= hh_utility[l, :, :, :] .+ hh_parameters.beta .* cont
+        @inbounds for l in 1:gpar.N_l            @views candidate .= hh_utility[l, :, :, :] .+ hhpar.beta .* cont
             # candidate now has shape (N_rho, N_a, N_a), where the 3rd dimension indexes next assets.
             # Vectorize the maximization over next assets:
             V_candidate[l, :, :] .= dropdims(maximum(candidate, dims=3), dims=3)
@@ -324,7 +324,7 @@ end
 
 ############################## INTERPOLATED VFI ###############################
 
-function intVFI(hh_consumption, l_grid, rho_grid, a_grid, hh_parameters, comp_params, 
+function intVFI(hh_consumption, l_grid, rho_grid, a_grid, hhpar, comp_params, 
     pi_rho, g_par)
     # Initialize the state-dependent value function guess (over ρ and a)
     V_guess = zeros(gpar.N_rho, gpar.N_a)
@@ -344,7 +344,7 @@ function intVFI(hh_consumption, l_grid, rho_grid, a_grid, hh_parameters, comp_pa
     V_new = similar(V_guess)
     
     # Create interpolant for household utility
-    hh_utility = compute_utility_grid(hh_consumption, l_grid, hh_parameters; minus_inf = true)
+    hh_utility = compute_utility_grid(hh_consumption, l_grid, hhpar; minus_inf = true)
     # Replace -Inf with large negative values to ensure smoothness of interpolation
     # itp_utility = extrapolate(interpolate((l_grid, rho_grid, a_grid, a_grid), hh_utility, Gridded(Linear())), Interpolations.Flat())
     # utility_interp = (l, rho, a, a_prime) -> itp_utility(l, rho, a, a_prime)
@@ -374,7 +374,7 @@ function intVFI(hh_consumption, l_grid, rho_grid, a_grid, hh_parameters, comp_pa
 
                     # plot_interpolation(a_grid, hh_utility[l, rho, a, :], utility_interp, x_max=2.5)
                     # Define objective function to maximise
-                    objective = a_prime -> -(utility_interp(a_prime) + hh_parameters.beta * itp_cont_wrap(rho, a_prime))
+                    objective = a_prime -> -(utility_interp(a_prime) + hhpar.beta * itp_cont_wrap(rho, a_prime))
 
                     # Optimize - Restrict search to feasible points to ensure finding right solution
                     result = optimize(objective, gpar.a_min, max_a_prime, Brent()) #TBM - Check Brent()

@@ -37,7 +37,7 @@ include("Interpolants.jl")
 #### Memory efficient version - More in-place operations + @views
 ### Memory gains: 24% 
 
-function compute_hh_taxes_consumption_utility_ME(a_grid, rho_grid, l_grid, gpar, w, r, taxes, hh_parameters)
+function compute_hh_taxes_consumption_utility_ME(a_grid, rho_grid, l_grid, gpar, w, net_r, taxes, hhpar)
 
     # SECTION 1 - COMPUTE DISPOSABLE INCOME (AFTER WAGE TAX & ASSET RETURNS) #
     
@@ -58,7 +58,7 @@ function compute_hh_taxes_consumption_utility_ME(a_grid, rho_grid, l_grid, gpar,
     # 3rd dim: a
     old_dims_y = ndims(y)
     y = ExpandMatrix(y, gpar.N_a)
-    gross_capital_returns = Vector2NDimMatrix((1 + (1 - taxes.tau_k)r) .* a_grid, old_dims_y)
+    gross_capital_returns = Vector2NDimMatrix((1 + net_r) .* a_grid, old_dims_y)
 
     y .+= gross_capital_returns;
 
@@ -112,7 +112,7 @@ function compute_hh_taxes_consumption_utility_ME(a_grid, rho_grid, l_grid, gpar,
     # Compute household utility if consumption is positive
     @threads for l in 1:gpar.N_l        @views hh_utility[l, :, :, :] .= ifelse.(hh_consumption[l, :, :, :] .> 0,
                                                 get_utility_hh.(hh_consumption[l, :, :, :],
-                                                l_grid[l], hh_parameters), 
+                                                l_grid[l], hhpar), 
                                                 hh_consumption[l, :, :, :])
     end
 
@@ -124,7 +124,7 @@ end
 ###############################################################################
 
 
-function compute_consumption_grid(a_grid, rho_grid, l_grid, gpar, w, r, taxes)
+function compute_consumption_grid(a_grid, rho_grid, l_grid, gpar, w, net_r, taxes)
     # SECTION 1 - COMPUTE DISPOSABLE INCOME (AFTER WAGE TAX & ASSET RETURNS) #
     
     #Compute gross labor income for each combination of labor and productivity
@@ -144,7 +144,7 @@ function compute_consumption_grid(a_grid, rho_grid, l_grid, gpar, w, r, taxes)
     # 3rd dim: a
     old_dims_y = ndims(y)
     y = ExpandMatrix(y, gpar.N_a)
-    gross_capital_returns = Vector2NDimMatrix((1 + (1 - taxes.tau_k)r) .* a_grid, old_dims_y)
+    gross_capital_returns = Vector2NDimMatrix((1 + net_r) .* a_grid, old_dims_y)
 
     y .+= gross_capital_returns;
 
@@ -197,7 +197,7 @@ function compute_consumption_grid(a_grid, rho_grid, l_grid, gpar, w, r, taxes)
 end
 
 
-function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, taxes; replace_neg_consumption = false, return_cplustax = false)
+function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, net_r, taxes; replace_neg_consumption = false, return_cplustax = false)
     """
     Computes household consumption, labor income taxes, and consumption taxes over the grid.
 
@@ -207,7 +207,7 @@ function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, 
         l_grid   : Grid of labor supply choices.
         gpar     : Struct containing grid parameters.
         w        : Wage rate.
-        r        : Interest rate.
+        net_r    : Net Interest rate [(1 - taxes.tau_k)r].
         taxes    : Struct containing tax parameters.
         replace_neg_consumption : Whether to replace negative consumption with -Inf.
 
@@ -234,7 +234,7 @@ function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, 
     # 3rd dim: a
     old_dims_y = ndims(y)
     y = ExpandMatrix(y, gpar.N_a)
-    gross_capital_returns = Vector2NDimMatrix((1 + (1 - taxes.tau_k)r) .* a_grid, old_dims_y)
+    gross_capital_returns = Vector2NDimMatrix((1 + net_r) .* a_grid, old_dims_y)
 
     y .+= gross_capital_returns;
 
@@ -296,14 +296,14 @@ function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, 
     end
 end
 
-function compute_utility_grid(hh_consumption, l_grid, hh_parameters; minus_inf = true)
+function compute_utility_grid(hh_consumption, l_grid, hhpar; minus_inf = true)
     """
     Computes household utility for given consumption and labor choices.
 
     Args:
         hh_consumption : Precomputed consumption matrix.
         l_grid        : Grid of labor supply choices.
-        hh_parameters : Struct containing household parameters.
+        hhpar : Struct containing household parameters.
         minus_inf     : Whether to replace -Inf with a finite minimum.
 
     Returns:
@@ -318,7 +318,7 @@ function compute_utility_grid(hh_consumption, l_grid, hh_parameters; minus_inf =
     @threads for l in 1:gpar.N_l        
         @views hh_utility[l, :, :, :] .= ifelse.(hh_consumption[l, :, :, :] .> 0,
                                                 get_utility_hh.(hh_consumption[l, :, :, :],
-                                                l_grid[l], hh_parameters), 
+                                                l_grid[l], hhpar), 
                                                 -Inf)
     end
 
@@ -338,7 +338,7 @@ end
 # derived analytically to estimate optimal consumption and labor as 
 # functions of (ρ, a, a'), to reduce households problem to a single choice
 
-function find_opt_cons_labor(rho_grid, a_grid, w, net_r, taxes, hh_parameters, gpar; enforce_labor_cap = true, replace_neg_consumption = true)
+function find_opt_cons_labor(rho_grid, a_grid, w, net_r, taxes, hhpar, gpar; enforce_labor_cap = true, replace_neg_consumption = true)
     # Create matrices for optimal consumption and optimal labor
     opt_consumption = zeros(gpar.N_rho, gpar.N_a, gpar.N_a)
     opt_labor = zeros(gpar.N_rho, gpar.N_a, gpar.N_a)
@@ -356,7 +356,7 @@ function find_opt_cons_labor(rho_grid, a_grid, w, net_r, taxes, hh_parameters, g
         rho = rho_grid[rho_i]
     
         # Define the wage as a function of c using the labor supply function
-        wage_star(c) = rho * w * get_opt_labor_from_FOC(c, rho, w, taxes, hh_parameters)
+        wage_star(c) = rho * w * get_opt_labor_from_FOC(c, rho, w, taxes, hhpar)
     
         if enforce_labor_cap
             for a_i in 1:gpar.N_a
@@ -378,10 +378,9 @@ function find_opt_cons_labor(rho_grid, a_grid, w, net_r, taxes, hh_parameters, g
                         
                         # Update: hybrid function trying secant method first and bisection in case of failure
                         opt_c = robust_root_FOC(f, 1e-8, 0.5)   # Use a very low lower bound to avoid bracketing error with bisection
-                        # opt_c = flexible_root_finder(f, 0.0, 0.001, 0.5)
 
                         # Find optimal labor implied
-                        opt_l = get_opt_labor_from_FOC(opt_c, rho, w, taxes, hh_parameters)
+                        opt_l = get_opt_labor_from_FOC(opt_c, rho, w, taxes, hhpar)
 
                         # Check whether it is within boundaries, if not 
                         # replace with l = 1 and recompute consumption
@@ -437,7 +436,7 @@ function find_opt_cons_labor(rho_grid, a_grid, w, net_r, taxes, hh_parameters, g
                         opt_c = find_zero(f, (1e-6, root_max), Roots.Brent())
 
                         # Find optimal labor implied
-                        opt_l = get_opt_labor_from_FOC(opt_c, rho, w, taxes, hh_parameters)
+                        opt_l = get_opt_labor_from_FOC(opt_c, rho, w, taxes, hhpar)
 
                         
 
@@ -480,7 +479,7 @@ end
 
 ######################### VFI - EXPLOITING LABOR FOC ##########################
 
-function intVFI_FOC(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, hh_parameters, gpar, comp_params)
+function intVFI_FOC(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, hhpar, gpar, comp_params)
     # --- Step 0: Pre-allocate variables ---
     # Pre-allocate value function and policy arrays
     V_guess = zeros(gpar.N_rho, gpar.N_a)
@@ -499,7 +498,7 @@ function intVFI_FOC(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, hh_paramet
         for rho_i in 1:gpar.N_rho
             for a_i in 1:gpar.N_a 
                 # Bellman operator, objective function to be maximised
-                objective = a_prime -> -(opt_u_itp[rho_i, a_i](a_prime) + hh_parameters.beta * itp_cont_wrap(rho_grid[rho_i], a_prime))
+                objective = a_prime -> -(opt_u_itp[rho_i, a_i](a_prime) + hhpar.beta * itp_cont_wrap(rho_grid[rho_i], a_prime))
     
                 # Maximise with respect to a'
                 result = optimize(objective, gpar.a_min, max_a_prime[rho_i, a_i], GoldenSection()) 
@@ -527,7 +526,7 @@ function intVFI_FOC(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, hh_paramet
 end    
 
 
-function intVFI_FOC_parallel(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, hh_parameters, gpar, comp_params)
+function intVFI_FOC_parallel(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, hhpar, gpar, comp_params)
     """
     Performs Value Function Iteration (VFI) using optimal labor and consumption choices 
     derived from the first-order conditions.
@@ -538,7 +537,7 @@ function intVFI_FOC_parallel(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, h
         rho_grid      : Grid of productivity levels
         a_grid        : Grid of asset values
         max_a_prime   : Upper bound for a' choices per (ρ, a)
-        hh_parameters : Household parameters (contains β)
+        hhpar : Household parameters (contains β)
         gpar         : Struct containing grid and problem parameters
         comp_params  : Struct containing VFI computational parameters
 
@@ -565,7 +564,7 @@ function intVFI_FOC_parallel(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, h
                 # # Solving VFI issues - plotting 
                 # # Compute the objective function values
                 # # Plot only utility
-                # plot_utility_vs_aprime(rho_i, a_i, opt_u_itp, opt_c_itp, opt_l_itp, a_grid, max_a_prime, hh_parameters)
+                # plot_utility_vs_aprime(rho_i, a_i, opt_u_itp, opt_c_itp, opt_l_itp, a_grid, max_a_prime, hhpar)
 
                 # obj_values = [
                 #     (opt_u_itp[rho_i, a_i](a_p))
@@ -590,7 +589,7 @@ function intVFI_FOC_parallel(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, h
 
                 # # Plot objective
                 # obj_values = [
-                #     (opt_u_itp[rho_i, a_i](a_p) + hh_parameters.beta * itp_cont_wrap(rho_grid[rho_i], a_p))
+                #     (opt_u_itp[rho_i, a_i](a_p) + hhpar.beta * itp_cont_wrap(rho_grid[rho_i], a_p))
                 #     for a_p in a_prime_values
                 # ]
 
@@ -600,7 +599,7 @@ function intVFI_FOC_parallel(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, h
 
 
                 # Define and optimize the objective function
-                results[rho_i, a_i] = optimize(a_prime -> -(opt_u_itp[rho_i, a_i](a_prime) + hh_parameters.beta * itp_cont_wrap(rho_grid[rho_i], a_prime)), 
+                results[rho_i, a_i] = optimize(a_prime -> -(opt_u_itp[rho_i, a_i](a_prime) + hhpar.beta * itp_cont_wrap(rho_grid[rho_i], a_prime)), 
                                             gpar.a_min, max_a_prime[rho_i, a_i], 
                                             GoldenSection()) 
 
@@ -615,7 +614,7 @@ function intVFI_FOC_parallel(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, h
         # println("Iteration $iter, error: $max_error")
 
         if max_error < comp_params.vfi_tol
-            println("Converged after $iter iterations")
+            # println("VFI converged after $iter iterations")
             break
         end
 
@@ -660,3 +659,198 @@ function compute_policy_matrix(opt_policy_itp, policy_a_int, a_grid, rho_grid)
 
     return policy_matrix
 end
+
+
+
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#----------------------# 5. SOLVING HOUSEHOLD PROBLEM #-----------------------#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+
+function SolveHouseholdProblem(a_grid, rho_grid, l_grid, gpar, w, r, taxes, hhpar, pi_rho, comp_params)
+    """
+    Solves the household problem via value function iteration using first-order conditions (FOC).
+
+    Returns:
+        - hh_labor_taxes     : Net labor taxes y - T_y
+        - hh_consumption     : Optimal consumption at each (ρ, a, a')
+        - hh_consumption_tax : Consumption tax paid
+        - opt_c_FOC          : Optimal consumption from FOC
+        - opt_l_FOC          : Optimal labor from FOC
+        - valuef             : Value function at convergence
+        - policy_a           : Policy function for a'
+        - policy_l           : Labor policy function l(ρ, a)
+        - policy_c           : Consumption policy function c(ρ, a)
+    """
+    ########## PRELIMINARY ##########
+    # Allocate net interest rate (for simplicity)
+    net_r = (1 - taxes.tau_k)r
+
+    ########## SECTION 1 - COMPUTE TAXES, CONSUMPTION AND UTILITY ##########
+
+    # println("Solving budget constraint...")
+
+    hh_labor_taxes, hh_consumption, hh_consumption_tax = compute_consumption_grid_for_itp(
+        a_grid, rho_grid, l_grid, gpar, w, net_r, taxes;
+        replace_neg_consumption = true
+    )
+
+    # cExp2cInt = interp_consumption(hh_consumption, hh_consumption_plus_tax)
+
+    # test_budget_constraint() # TBM - to be removed or adjusted for function wrapping 
+
+    ########## SECTION 2 - COMPUTE OPTIMAL CONSUMPTION AND LABOR ##########
+
+    # println("Pinning down optimal labor and consumption using labor FOC...")
+
+    opt_c_FOC, opt_l_FOC = find_opt_cons_labor(
+        rho_grid, a_grid, w, net_r, taxes, hhpar, gpar;
+        enforce_labor_cap = true,
+        replace_neg_consumption = true
+    )
+
+    ########## SECTION 3 - INTERPOLATE POLICIES FROM FIRST ORDER CONDITIONS ##########
+
+    opt_c_itp, opt_l_itp, opt_u_itp, max_a_prime = interp_opt_funs(
+        a_grid, opt_c_FOC, opt_l_FOC, gpar, hhpar
+    )
+
+    ########## SECTION 4 - SOLVE VALUE FUNCTION ITERATION ##########
+
+    # println("Launching VFI...")
+
+    valuef, policy_a = intVFI_FOC_parallel(
+        opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, hhpar, gpar, comp_params
+    )
+
+    ########## SECTION 5 - RECONSTRUCT FINAL POLICY FUNCTIONS ##########
+
+    policy_a_int = Spline2D_adj(rho_grid, a_grid, policy_a)
+
+    policy_l = compute_policy_matrix(opt_l_itp, policy_a_int, a_grid, rho_grid)
+    policy_c = compute_policy_matrix(opt_c_itp, policy_a_int, a_grid, rho_grid)
+
+    ########## SECTION 6 - RUN CHECKS ON OUTPUT ##########
+    # Check that value and policy functions contain only finite values
+    for m in [valuef, policy_a, policy_c, policy_l]
+        all(isfinite.(m)) ? nothing : error("Non-finite values in value or policy functions! Check VFI!")
+    end
+    
+    return hh_labor_taxes, hh_consumption, hh_consumption_tax, opt_c_FOC, opt_l_FOC, valuef, policy_a, policy_l, policy_c
+end
+
+
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-------------------------# 6. COMPUTING AGGREGATES #-------------------------#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+
+function stationary_distribution(a_grid, pi_rho, policy_a, gpar; tol=1e-9, max_iter=10000)    
+    # Initial guess: uniform distribution
+    dist = fill(1.0 / (gpar.N_a * gpar.N_rho), gpar.N_rho, gpar.N_a)
+    dist_new = similar(dist)
+
+    for iter in 1:max_iter
+        fill!(dist_new, 0.0)
+
+        for a_i in 1:gpar.N_a
+            for rho_i in 1:gpar.N_rho
+                a_prime = policy_a[rho_i, a_i]  # next asset level (not necessarily on grid)
+
+                # Find interpolation weights
+                if a_prime <= a_grid[1]
+                    a_i_low, a_i_high, w_high = 1, 1, 1.0
+                elseif a_prime >= a_grid[end]
+                    a_i_low, a_i_high, w_high = gpar.N_a, gpar.N_a, 1.0
+                else
+                    a_i_high = searchsortedfirst(a_grid, a_prime)
+                    a_i_low = a_i_high - 1
+                    w_high = (a_prime - a_grid[a_i_low]) / (a_grid[a_i_high] - a_grid[a_i_low])
+                end
+
+                # Transition over productivity
+                for rho_i_prime in 1:gpar.N_rho
+                    prob = pi_rho[rho_i, rho_i_prime]
+                    mass = dist[rho_i, a_i] * prob
+                    dist_new[rho_i_prime, a_i_low] += (1 - w_high) * mass
+                    dist_new[rho_i_prime, a_i_high] += w_high * mass
+                end
+            end
+        end
+
+        if maximum(abs.(dist_new .- dist)) < tol
+            # println("Stationary Distribution: Converged after $iter iterations")
+            return dist_new
+        end
+        dist .= dist_new
+    end
+
+    error("Stationary distribution did not converge")
+
+    return dist_new
+end
+
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#----------------------# 7. SOLVING GENERAL EQUILIBRIUM #---------------------#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+
+
+function capital_market_error(
+    r, a_grid, rho_grid, l_grid,
+    gpar, hhpar, fpar, taxes,
+    pi_rho, comp_params
+)
+    # Wage implied by firm's FOC
+    w = (1 - fpar.alpha) * fpar.tfp *
+        ((fpar.alpha * fpar.tfp / (r + fpar.delta)) ^ (fpar.alpha / (1 - fpar.alpha)))
+
+    # Household block
+    (_, _, _, _, _, _, policy_a, policy_l, policy_c) =
+        SolveHouseholdProblem(a_grid, rho_grid, l_grid, gpar, w, r, taxes, hhpar, pi_rho, comp_params)
+
+    # Stationary distribution
+    stat_dist = stationary_distribution(a_grid, pi_rho, policy_a, gpar; tol=1e-10, max_iter=10_000)
+
+    # Aggregates
+    asset_supply = sum(stat_dist * a_grid)
+    labor_supply = sum(stat_dist .* policy_l)
+
+    # Capital demand from firm's FOC
+    asset_demand = ((fpar.alpha * fpar.tfp) / (r + fpar.delta)) ^ (1 / (1 - fpar.alpha)) * labor_supply
+
+    return asset_demand - asset_supply
+end
+
+
+function ComputeEquilibrium_Roots(
+    a_grid, rho_grid, l_grid,
+    gpar, hhpar, fpar, taxes,
+    pi_rho, comp_params
+)
+    r_low = -fpar.delta
+    r_high = 1 / hhpar.beta - 1
+
+    f_root(r) = capital_market_error(r, a_grid, rho_grid, l_grid,
+                                     gpar, hhpar, fpar, taxes,
+                                     pi_rho, comp_params)
+
+    r_eq = find_zero(f_root, (r_low, r_high), Brent(), atol=comp_params.ms_tol)
+
+    # Recover equilibrium wage
+    w_eq = (1 - fpar.alpha) * fpar.tfp *
+           ((fpar.alpha * fpar.tfp / (r_eq + fpar.delta)) ^ (fpar.alpha / (1 - fpar.alpha)))
+
+    println("✅ GE equilibrium found: r = $r_eq, w = $w_eq")
+
+    return r_eq, w_eq
+end
+
+@elapsed ComputeEquilibrium_Roots(
+    a_grid, rho_grid, l_grid,
+    gpar, hhpar, fpar, taxes,
+    pi_rho, comp_params
+)
