@@ -28,11 +28,11 @@
 ####### COMPUTING FULL CONSUMPTION GRID ########
 
 # Original version - including also tax progressivity rates
-# @elapsed hh_labor_taxes, hh_consumption, hh_consumption_tax, hh_utility = compute_hh_taxes_consumption_utility(a_grid, 
+# @elapsed hh_labor_tax, hh_consumption, hh_consumption_tax, hh_utility = compute_hh_taxes_consumption_utility(a_grid, 
 #                                                                     N_a, rho_grid, l_grid, w, r, taxes, hhpar);
 
 # Simplified version for one degree of progressivity of labor income and consumption taxes
-# @elapsed hh_labor_taxes, hh_consumption, hh_consumption_tax, hh_utility = compute_hh_taxes_consumption_utility_ME(a_grid, 
+# @elapsed hh_labor_tax, hh_consumption, hh_consumption_tax, hh_utility = compute_hh_taxes_consumption_utility_ME(a_grid, 
 #                                                                     N_a, rho_grid, l_grid, N_l, w, r, Tau_y, Tau_c, taxes, hhpar);
 
 # @benchmark compute_hh_taxes_consumption_utility_ME(a_grid, N_a, rho_grid, l_grid, w, r, Tau_y, Tau_c, taxes, hhpar)
@@ -226,7 +226,7 @@ function standardVFI(gpar, comp_params, hhpar, hh_utility, pi_rho)
         
         # --- Step 4: Check convergence ---
         if maximum(abs.(V_new .- V_guess)) < comp_params.vfi_tol
-            println("Converged after $iter iterations")
+            @info("Converged after $iter iterations")
             break
         end
         
@@ -311,7 +311,7 @@ function MemoryEffVFI(gpar, comp_params, hhpar, hh_utility, pi_rho; V_guess_read
 
         # --- Step 4: Check convergence ---
         if maximum(abs.(V_new .- V_guess)) < comp_params.vfi_tol
-            println("Converged after $iter iterations")
+            @info("Converged after $iter iterations")
             break
         end
         
@@ -367,8 +367,8 @@ function intVFI(hh_consumption, l_grid, rho_grid, a_grid, hhpar, comp_params,
                     # utility_interp, max_a_prime = piecewise_1D_interpolation(a_grid, hh_utility[l, rho, a, :]; 
                     #                                                             spline=false, return_threshold=true)
                     # catch e
-                    #     println("Error encountered at indices: l = ", l, ", rho = ", rho, ", a = ", a)
-                    #     println("Error message: ", e)
+                    #     @info("Error encountered at indices: l = ", l, ", rho = ", rho, ", a = ", a)
+                    #     @info("Error message: ", e)
                     #     rethrow()  # Optional: Rethrow the error to stop execution, or remove if you want it to continue
                     # end
 
@@ -381,7 +381,7 @@ function intVFI(hh_consumption, l_grid, rho_grid, a_grid, hhpar, comp_params,
                     
                     # Temporary check - Ensure no infinite value is stored
                     # if isinf(Optim.minimum(result))
-                    #     error("Error: Solution is Inf, check process!")
+                    #     @error("Error: Solution is Inf, check process!")
                     # end
 
                     # Store the candidate value for this labor option.
@@ -391,8 +391,8 @@ function intVFI(hh_consumption, l_grid, rho_grid, a_grid, hhpar, comp_params,
                     @views policy_a_opt[l, rho, a] = Optim.minimizer(result) 
                         
                     # catch e
-                    #     println("Error encountered at indices: l = ", l, ", rho = ", rho, ", a = ", a)
-                    #     println("Error message: ", e)
+                    #     @info("Error encountered at indices: l = ", l, ", rho = ", rho, ", a = ", a)
+                    #     @info("Error message: ", e)
                     # end
                 end
             end
@@ -471,12 +471,12 @@ function intVFI(hh_consumption, l_grid, rho_grid, a_grid, hhpar, comp_params,
         # --- Step 4: Check convergence ---
         max_error = maximum(abs.(V_new .- V_guess))
         if max_error < comp_params.vfi_tol
-            println("Converged after $iter iterations")
+            @info("Converged after $iter iterations")
             break
         end
 
         # Otherwise, update the guess.
-        println("Iteration $iter, error: $max_error")
+        @info("Iteration $iter, error: $max_error")
         V_guess .= V_new
         
     end
@@ -489,7 +489,7 @@ end
 
 ################ EX-POST INTERPOLATIONS ##################
 
-println("Interpolating results...")
+@info("Interpolating results...")
 ###### Interpolate Asset policy function ######
 
 fine_grid_a = range(gpar.a_min, gpar.a_max, length=2*gpar.N_a) 
@@ -576,3 +576,71 @@ display(pfl_int)
 # filename = "asset_policy_int_l" * "$gpar.N_l" * "_a" * "$gpar.N_a" * ".png"
 # savefig(pfl_int, "output/preliminary/" * filename)
 
+
+
+
+
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#----------------------# 7. SOLVING GENERAL EQUILIBRIUM #---------------------#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+
+
+# Preliminary attempt: solving model with Brent method
+
+# function capital_market_@error(
+#     r, a_grid, rho_grid, l_grid,
+#     gpar, hhpar, fpar, taxes,
+#     pi_rho, comp_params
+# )
+#     # Wage implied by firm's FOC
+#     w = (1 - fpar.alpha) * fpar.tfp *
+#         ((fpar.alpha * fpar.tfp / (r + fpar.delta)) ^ (fpar.alpha / (1 - fpar.alpha)))
+
+#     # Household block
+#     (_, _, _, _, _, _, policy_a, policy_l, policy_c) =
+#         SolveHouseholdProblem(a_grid, rho_grid, l_grid, gpar, w, r, taxes, hhpar, pi_rho, comp_params)
+
+#     # Stationary distribution
+#     stat_dist = stationary_distribution(a_grid, pi_rho, policy_a, gpar; tol=1e-10, max_iter=10_000)
+
+#     # Aggregates
+#     asset_supply = sum(stat_dist * a_grid)
+#     labor_supply = sum(stat_dist .* policy_l)
+
+#     # Capital demand from firm's FOC
+#     asset_demand = ((fpar.alpha * fpar.tfp) / (r + fpar.delta)) ^ (1 / (1 - fpar.alpha)) * labor_supply
+
+#     return asset_demand - asset_supply
+# end
+
+
+# function ComputeEquilibrium_Roots(
+#     a_grid, rho_grid, l_grid,
+#     gpar, hhpar, fpar, taxes,
+#     pi_rho, comp_params
+# )
+#     r_low = -fpar.delta
+#     r_high = 1 / hhpar.beta - 1
+
+#     f_root(r) = capital_market_@error(r, a_grid, rho_grid, l_grid,
+#                                      gpar, hhpar, fpar, taxes,
+#                                      pi_rho, comp_params)
+
+#     r_eq = find_zero(f_root, (r_low, r_high), Brent(), atol=comp_params.ms_tol)
+
+#     # Recover equilibrium wage
+#     w_eq = (1 - fpar.alpha) * fpar.tfp *
+#            ((fpar.alpha * fpar.tfp / (r_eq + fpar.delta)) ^ (fpar.alpha / (1 - fpar.alpha)))
+
+#     @info("✅ GE equilibrium found: r = $r_eq, w = $w_eq")
+
+#     return r_eq, w_eq
+# end
+
+# @elapsed ComputeEquilibrium_Roots(
+#     a_grid, rho_grid, l_grid,
+#     gpar, hhpar, fpar, taxes,
+#     pi_rho, comp_params
+# )

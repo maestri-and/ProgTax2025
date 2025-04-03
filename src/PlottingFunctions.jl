@@ -9,7 +9,7 @@
 
 using StatsBase
 using Plots
-using GLMakie: surface
+using GLMakie: surface, Figure, Axis3
 using LaTeXStrings
 
 
@@ -51,7 +51,7 @@ function plot_utility_function(rra, phi, frisch; normalise = false, c_range = (0
     max_c = c_values[max_index[1]]
     max_l = l_values[max_index[2]]
 
-    println("Maximum utility: $max_utility at (c = $max_c, l = $max_l)")
+    @info("Maximum utility: $max_utility at (c = $max_c, l = $max_l)")
 
     # Return utility matrix and plot
     return utility_matrix, p, (max_utility, max_c, max_l)
@@ -93,7 +93,7 @@ function plot_utility_with_bc(rra, phi, frisch; a_i = 10, a_prime_i = 10, rho_i 
     max_c = c_values[max_index]
     max_l = l_values[max_index]
 
-    println("Maximum utility: $max_utility at (c = $max_c, l = $max_l)")
+    @info("Maximum utility: $max_utility at (c = $max_c, l = $max_l)")
 
     # Return utility values and plot
     return utility_values, p, (max_utility, max_c, max_l)
@@ -220,7 +220,7 @@ function plot_2d_policy_int_vs_data(policy_matrix, policy_spline, a_grid, rho_gr
         title_text = "Policy Function for Consumption"
         ylabel_text = "Consumption (c)"
     else
-        error("Invalid policy_type. Choose 'assets', 'labor', or 'consumption'.")
+        @error("Invalid policy_type. Choose 'assets', 'labor', or 'consumption'.")
     end
 
     # Loop over each productivity level ρ and create a plot
@@ -379,7 +379,7 @@ function plot_policy_function(policy_data, a_grid, rho_grid; policy_type="assets
         "consumption" => ("Policy Function for Consumption", "Consumption (c)", :topleft)
     )
 
-    haskey(titles, policy_type) || error("Invalid policy_type. Choose 'assets', 'labor', or 'consumption'.")
+    haskey(titles, policy_type) || @error("Invalid policy_type. Choose 'assets', 'labor', or 'consumption'.")
     title_text, ylabel_text, leg_pos = titles[policy_type]
     
     # Subtitle string with tax parameters
@@ -405,7 +405,7 @@ function plot_policy_function(policy_data, a_grid, rho_grid; policy_type="assets
         end
 
     else
-        error("Invalid input type for policy_data.")
+        @error("Invalid input type for policy_data.")
     end
 
     return p
@@ -465,5 +465,41 @@ function plot_household_policies(valuef, policy_a_int, policy_l_int, policy_c,
 end
 
 ###############################################################################
-################### 5. PLOTTING ??? ####################
+##################### 5. PLOTTING AGGREGATE DISTRIBUTIONS #####################
 ###############################################################################
+
+function plot_heatmap_stationary_distribution(stat_dist; taxes=taxes)
+    # Initialise title
+    title_text = "Stationary distribution of households across states"
+    tax_info = "λ_y=$(taxes.lambda_y), τ_y=$(taxes.tau_y), λ_c=$(taxes.lambda_c), τ_c=$(taxes.tau_c), τ_k=$(taxes.tau_k)"
+
+    # Initialize plot
+    p = heatmap(stat_dist,
+    title=LaTeXString("$title_text\n\$$(tax_info)\$\n"), 
+    xlabel="Wealth (a)", ylabel="Productivity (ρ)",
+    color = :heat,                # or :heat
+    background_color = :white,
+    colorbar_title = "\nDensity",
+    colorbar_titlefont = 10,
+    right_margin = 5Plots.mm,
+    framestyle = :box)
+
+    return(p)
+end
+
+function plot_stationary_distribution(a_grid, rho_grid, stat_dist; gpar = gpar)
+    # Create interactive 3D plot
+    # fig = Figure(size=(800, 600))
+    # ax = Axis3(fig[1, 1], xlabel="Assets", ylabel="Productivity", zlabel="Density")
+
+    # A = repeat(a_grid', gpar.N_rho, 1)             # shape: N_rho × N_a
+    # R = repeat(rho_grid, 1, gpar.N_a)              # shape: N_rho × N_a
+
+    # surface!(ax, A, R, stat_dist; colormap = :viridis)
+    surface(a_grid, rho_grid, stat_dist; colormap = :viridis)
+
+    fig
+end
+
+    
+    

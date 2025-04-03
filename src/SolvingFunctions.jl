@@ -197,7 +197,7 @@ function compute_consumption_grid(a_grid, rho_grid, l_grid, gpar, w, net_r, taxe
 end
 
 
-function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, net_r, taxes; replace_neg_consumption = false, return_cplustax = false)
+function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, net_r, taxes; replace_neg_consumption = false, return_cplustax = false)
     """
     Computes household consumption, labor income taxes, and consumption taxes over the grid.
 
@@ -397,7 +397,7 @@ function find_opt_cons_labor(rho_grid, a_grid, w, net_r, taxes, hhpar, gpar; enf
                             try 
                                 @assert (2*opt_c - taxes.lambda_c*opt_c^(1 - taxes.tau_c)) - (taxes.lambda_y * (rho * w * opt_l) ^ (1 - taxes.tau_y) + rhs) < 0.0001
                             catch AssertionError
-                                println("Budget constraint error at rho_i: $rho_i, a_i: $a_i, a_prime_i: $a_prime_i ")
+                                @info("Budget constraint error at rho_i: $rho_i, a_i: $a_i, a_prime_i: $a_prime_i ")
                                 throw(AssertionError)
                             end
                         end
@@ -413,7 +413,7 @@ function find_opt_cons_labor(rho_grid, a_grid, w, net_r, taxes, hhpar, gpar; enf
                             @views opt_labor[rho_i, a_i, a_prime_i] = Inf
                         else
                             # Rethrow other exceptions
-                            println("Unexpected error at rho_i: $rho_i, a_i: $a_i, a_prime_i: $a_prime_i ")
+                            @info("Unexpected error at rho_i: $rho_i, a_i: $a_i, a_prime_i: $a_prime_i ")
                             throw(e)
                         end
                     end
@@ -514,12 +514,12 @@ function intVFI_FOC(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, hhpar, gpa
         # --- Step 4: Check convergence ---
         max_error = maximum(abs.(V_new .- V_guess))
         if max_error < comp_params.vfi_tol
-            println("Converged after $iter iterations")
+            @info("Converged after $iter iterations")
             break
         end
     
         # Otherwise, update the guess.
-        # println("Iteration $iter, error: $max_error")
+        # @info("Iteration $iter, error: $max_error")
         V_guess .= V_new
     end
     return V_new, policy_a
@@ -611,10 +611,10 @@ function intVFI_FOC_parallel(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, h
 
         # --- Step 3: Check for Convergence ---
         max_error = maximum(abs.(V_new .- V_guess))
-        # println("Iteration $iter, error: $max_error")
+        # @info("Iteration $iter, error: $max_error")
 
         if max_error < comp_params.vfi_tol
-            # println("VFI converged after $iter iterations")
+            # @info("VFI converged after $iter iterations")
             break
         end
 
@@ -653,7 +653,7 @@ function compute_policy_matrix(opt_policy_itp, policy_a_int, a_grid, rho_grid)
     for rho_i in 1:length(rho_grid)
         for a_i in 1:length(a_grid)
             a_prime_opt = policy_a_int(rho_grid[rho_i], a_grid[a_i])  # Get optimal a'
-            policy_matrix[rho_i, a_i] = opt_policy_itp[rho_i, a_i](a_prime_opt)  # Get policy value
+            policy_matrix[rho_i, a_i] = opt_policy_itp[rho_i, a_i](round(a_prime_opt, digits=9))  # Get policy value - round to avoid issues with small differences due to piecewise interpolation
         end
     end
 
@@ -673,7 +673,7 @@ function SolveHouseholdProblem(a_grid, rho_grid, l_grid, gpar, w, r, taxes, hhpa
     Solves the household problem via value function iteration using first-order conditions (FOC).
 
     Returns:
-        - hh_labor_taxes     : Net labor taxes y - T_y
+        - hh_labor_tax       : Net labor taxes y - T_y
         - hh_consumption     : Optimal consumption at each (ρ, a, a')
         - hh_consumption_tax : Consumption tax paid
         - opt_c_FOC          : Optimal consumption from FOC
@@ -689,12 +689,12 @@ function SolveHouseholdProblem(a_grid, rho_grid, l_grid, gpar, w, r, taxes, hhpa
 
     ########## SECTION 1 - COMPUTE TAXES, CONSUMPTION AND UTILITY ##########
 
-    # println("Solving budget constraint...")
+    # @info("Solving budget constraint...")
 
-    hh_labor_taxes, hh_consumption, hh_consumption_tax = compute_consumption_grid_for_itp(
-        a_grid, rho_grid, l_grid, gpar, w, net_r, taxes;
+    hh_labor_tax, hh_consumption, hh_consumption_tax = compute_consumption_grid_for_itp(
+        a_grid, rho_grid, l_grid, gpar, w, r, net_r, taxes;
         replace_neg_consumption = true
-    )
+    );
 
     # cExp2cInt = interp_consumption(hh_consumption, hh_consumption_plus_tax)
 
@@ -702,23 +702,23 @@ function SolveHouseholdProblem(a_grid, rho_grid, l_grid, gpar, w, r, taxes, hhpa
 
     ########## SECTION 2 - COMPUTE OPTIMAL CONSUMPTION AND LABOR ##########
 
-    # println("Pinning down optimal labor and consumption using labor FOC...")
+    # @info("Pinning down optimal labor and consumption using labor FOC...")
 
     opt_c_FOC, opt_l_FOC = find_opt_cons_labor(
         rho_grid, a_grid, w, net_r, taxes, hhpar, gpar;
         enforce_labor_cap = true,
         replace_neg_consumption = true
-    )
+    );
 
     ########## SECTION 3 - INTERPOLATE POLICIES FROM FIRST ORDER CONDITIONS ##########
 
     opt_c_itp, opt_l_itp, opt_u_itp, max_a_prime = interp_opt_funs(
         a_grid, opt_c_FOC, opt_l_FOC, gpar, hhpar
-    )
+    );
 
     ########## SECTION 4 - SOLVE VALUE FUNCTION ITERATION ##########
 
-    # println("Launching VFI...")
+    # @info("Launching VFI...")
 
     valuef, policy_a = intVFI_FOC_parallel(
         opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, hhpar, gpar, comp_params
@@ -734,10 +734,15 @@ function SolveHouseholdProblem(a_grid, rho_grid, l_grid, gpar, w, r, taxes, hhpa
     ########## SECTION 6 - RUN CHECKS ON OUTPUT ##########
     # Check that value and policy functions contain only finite values
     for m in [valuef, policy_a, policy_c, policy_l]
-        all(isfinite.(m)) ? nothing : error("Non-finite values in value or policy functions! Check VFI!")
+        if all(isfinite.(m))
+            nothing 
+        else 
+            @info("Issue with r=$r, w=$w, taxes=$(taxes)!")
+            @error("Non-finite values in value or policy functions! Check VFI!")
+        end
     end
     
-    return hh_labor_taxes, hh_consumption, hh_consumption_tax, opt_c_FOC, opt_l_FOC, valuef, policy_a, policy_l, policy_c
+    return hh_labor_tax, hh_consumption, hh_consumption_tax, opt_c_FOC, opt_l_FOC, valuef, policy_a, policy_l, policy_c
 end
 
 
@@ -781,13 +786,13 @@ function stationary_distribution(a_grid, pi_rho, policy_a, gpar; tol=1e-9, max_i
         end
 
         if maximum(abs.(dist_new .- dist)) < tol
-            # println("Stationary Distribution: Converged after $iter iterations")
+            # @info("Stationary Distribution: Converged after $iter iterations")
             return dist_new
         end
         dist .= dist_new
     end
 
-    error("Stationary distribution did not converge")
+    @error("Stationary distribution did not converge")
 
     return dist_new
 end
@@ -798,59 +803,119 @@ end
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
+# Solving model using bisection 
 
-function capital_market_error(
-    r, a_grid, rho_grid, l_grid,
-    gpar, hhpar, fpar, taxes,
-    pi_rho, comp_params
-)
-    # Wage implied by firm's FOC
-    w = (1 - fpar.alpha) * fpar.tfp *
-        ((fpar.alpha * fpar.tfp / (r + fpar.delta)) ^ (fpar.alpha / (1 - fpar.alpha)))
-
-    # Household block
-    (_, _, _, _, _, _, policy_a, policy_l, policy_c) =
-        SolveHouseholdProblem(a_grid, rho_grid, l_grid, gpar, w, r, taxes, hhpar, pi_rho, comp_params)
-
-    # Stationary distribution
-    stat_dist = stationary_distribution(a_grid, pi_rho, policy_a, gpar; tol=1e-10, max_iter=10_000)
-
-    # Aggregates
-    asset_supply = sum(stat_dist * a_grid)
-    labor_supply = sum(stat_dist .* policy_l)
-
-    # Capital demand from firm's FOC
-    asset_demand = ((fpar.alpha * fpar.tfp) / (r + fpar.delta)) ^ (1 / (1 - fpar.alpha)) * labor_supply
-
-    return asset_demand - asset_supply
-end
-
-
-function ComputeEquilibrium_Roots(
+function ComputeEquilibrium(
     a_grid, rho_grid, l_grid,
     gpar, hhpar, fpar, taxes,
-    pi_rho, comp_params
+    pi_rho, comp_params; collect_errors = true, bisection_weight = 0
 )
+    #--- Initial bounds for interest rate (r) for bisection method
     r_low = -fpar.delta
-    r_high = 1 / hhpar.beta - 1
+    r_high = 0.1 # 1 / hhpar.beta - 1 # is too low!!!
+    r_mid = (r_low + r_high) / 2
+    bw = bisection_weight  # Weight for dampened update of r
 
-    f_root(r) = capital_market_error(r, a_grid, rho_grid, l_grid,
-                                     gpar, hhpar, fpar, taxes,
-                                     pi_rho, comp_params)
+    #--- Wage implied by firm's FOC given r
+    opt_wage(r) = (1 - fpar.alpha) * fpar.tfp *
+                  ((fpar.alpha * fpar.tfp / (r + fpar.delta)) ^ (fpar.alpha / (1 - fpar.alpha)))
+    w = opt_wage(r_mid)
 
-    r_eq = find_zero(f_root, (r_low, r_high), Brent(), atol=comp_params.ms_tol)
+    if collect_errors
+            #--- Store r points and K_@error(r) to study functional form
+            rates = []
+            errors = [] 
+    end
 
-    # Recover equilibrium wage
-    w_eq = (1 - fpar.alpha) * fpar.tfp *
-           ((fpar.alpha * fpar.tfp / (r_eq + fpar.delta)) ^ (fpar.alpha / (1 - fpar.alpha)))
+    #--- Begin equilibrium loop
+    @elapsed for iter in 1:comp_params.ms_max_iter
 
-    println("✅ GE equilibrium found: r = $r_eq, w = $w_eq")
+        ###### 1. Household Problem ######
+        (hh_labor_tax, hh_consumption, hh_consumption_tax,
+         opt_c_FOC, opt_l_FOC, valuef, policy_a,
+         policy_l, policy_c) = SolveHouseholdProblem(
+             a_grid, rho_grid, l_grid, gpar, w, r_mid, taxes,
+             hhpar, pi_rho, comp_params
+         )
 
-    return r_eq, w_eq
+        ###### 2. Stationary Distribution ######
+        stat_dist = stationary_distribution(
+            a_grid, pi_rho, policy_a, gpar;
+            tol = 1e-10, max_iter = 10_000
+        )
+
+        ###### 3. Aggregates ######
+        asset_supply = sum(stat_dist * a_grid)  # asset by productivity
+        labor_supply = sum(stat_dist .* policy_l)
+
+        ###### 4. Firm's Capital Demand from FOC ######
+        asset_demand = ((fpar.alpha * fpar.tfp) / (r_mid + fpar.delta)) ^
+                       (1 / (1 - fpar.alpha)) * labor_supply
+
+        ###### 5. Check for Market Clearing ######
+        K_error = asset_demand - asset_supply
+
+        @info("Iter $iter: r = $(round(r_mid, digits=5)), w = $(round(w, digits=5)), K_supply = $(round(asset_supply, digits=5)), K_demand = $(round(asset_demand, digits=5)), error = $(round(K_error, digits=5))")
+    
+        if collect_errors
+            #--- Store r points and K_@error(r) to study functional form
+            push!(rates, r_mid)
+            push!(errors, K_error) 
+        end
+
+        if abs(K_error) < comp_params.ms_tol
+            @info("✅ Equilibrium found: r = $r_mid, w = $w after $iter iterations")
+            if collect_errors
+                return r_mid, w, stat_dist, valuef, policy_a, policy_l, policy_c, rates, errors
+            else
+                return r_mid, w, stat_dist, valuef, policy_a, policy_l, policy_c
+            end
+        end
+
+        ###### 6. Bisection Update of Interest Rate ######
+        if K_error > 0
+            r_low = r_mid  # Excess demand → raise r
+        else
+            r_high = r_mid  # Excess supply → lower r
+        end
+
+        r_new = bw * r_mid + (1 - bw) * ((r_low + r_high) / 2)
+        r_mid = r_new
+        w = opt_wage(r_mid)
+    end
+
+    @error("❌ Equilibrium not found within max iterations.")
 end
 
-@elapsed ComputeEquilibrium_Roots(
-    a_grid, rho_grid, l_grid,
-    gpar, hhpar, fpar, taxes,
-    pi_rho, comp_params
-)
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-------------------# 8. COMPUTING AGGREGATE DISTRIBUTIONS #------------------#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+
+function compute_aggregates(stat_dist, policy_a, policy_c, policy_l, rho_grid, a_grid, w, r, taxes)
+    # Consumption 
+    consumption_dist = stat_dist .* policy_c
+    aggC = sum(stat_dist .* policy_c)
+    # Consumption Tax
+    consumption_tax_policy = policy_c .- taxes.lambda_c .* policy_c .^ (1 - taxes.tau_c) 
+    consumption_tax_dist = stat_dist .* consumption_tax_policy 
+    aggT_c = sum(consumption_tax_dist)              # Net consumption tax revenue, after redistribution if any
+    # Labor Tax
+    gross_labor_income = policy_l .* rho_grid .* w    # diag(ρ_grid)*policy_l*w
+    labor_tax_policy = gross_labor_income .- taxes.lambda_y .* gross_labor_income .^ (1 - taxes.tau_y)
+    labor_tax_dist = stat_dist .* labor_tax_policy
+    aggT_y = sum(labor_tax_dist)                    # Net labor tax revenue, after redistribution if any
+    # Capital Tax
+    capital_tax_dist = (taxes.tau_k * r) .* a_grid
+    aggT_k = sum(stat_dist * capital_tax_dist)
+
+    # Doublecheck budget constraint holding for optimal policies - Get max discrepancy
+    max_discrepancy = maximum(abs.(policy_c .+ consumption_tax_policy .- (gross_labor_income .- labor_tax_policy .+ ((1 + (1 - taxes.tau_k)r) .* (ones(7, 1) * a_grid')) .- policy_a)))
+    if max_discrepancy > 0.01
+        @error("Max discrepancy is larger than 0.01! Doublecheck accuracy!")
+    end
+
+    return(consumption_dist, consumption_tax_dist, labor_tax_dist, capital_tax_dist, aggC, aggT_c, aggT_y, aggT_k)
+end
+

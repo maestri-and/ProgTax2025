@@ -23,19 +23,34 @@ function makeGrid(xmin, xmax, n_values)
     return collect(range(xmin, length=n_values, stop=xmax))
 end
 
-# # Functions to save/read matrix in a txt file 
+function SaveMatrix(matrix, filepath::String; overwrite=false, write_parameters = true, taxes=taxes)
+    # Append or overwrite if specified
+    mode = overwrite ? "w" : "a"
+    open(filepath, mode) do file
+        # Add an empty line to divide different outputs
+        if !overwrite && isfile(filepath)
+            write(file, "\n")  
+        end
+        
+        # Write taxation parameters 
+        if write_parameters
+            write(file, "$(taxes)" * "\n")
+        end
 
-function SaveMatrix(matrix, filepath::String)
-    open(filepath, "w") do file
-        # Write the dimensions of the matrix as the first line
-        dims_str = join(size(matrix), ",")
-        write(file, dims_str * "\n")
-        # Write a newline to separate dimensions from data
-        # write(file, "\n")
-        # Write the matrix data
+        # Add size for matrices
+        if matrix isa AbstractArray
+            dims_str = join(size(matrix), ",")
+            write(file, dims_str * "\n")
+        elseif matrix isa AbstractFloat
+            write(file, "1" * "\n")
+        else
+            @error("Wrong argument type! Ensure your input is a matrix or a float!")
+        end
+
+        # Write element
         writedlm(file, matrix, ',')
     end
-    return print("Matrix saved in $filepath")
+    @info("Matrix saved in $filepath")
 end
 
 function ReadMatrix(filepath::String)
@@ -43,7 +58,7 @@ function ReadMatrix(filepath::String)
     open(filepath, "r") do file
         # Read the dimensions from the first line
         dims = parse.(Int, split(readline(file), ','))
-        println("Dimensions read from file: ", dims)
+        @info("Dimensions read from file: ", dims)
 
         # Read the matrix data
         matrix = readdlm(file, ',', Float64)

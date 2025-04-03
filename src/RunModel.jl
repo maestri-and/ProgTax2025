@@ -9,7 +9,7 @@
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
-#---------------# 0. IMPORTING LIBRARIES AND DEFINING EXPORTS #---------------#
+#------------------# 0. IMPORTING LIBRARIES AND SUBMODULES #------------------#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
@@ -22,7 +22,7 @@ using DelimitedFiles
 using Plots
 using BenchmarkTools
 using Dates
-# using Infiltrator
+using Infiltrator
 
 
 include("Parameters.jl")
@@ -35,18 +35,24 @@ include("SolvingFunctions.jl")
 include("PlottingFunctions.jl")
 include("../tests/TestingFunctions.jl")
 
-# Format date for temporary outputs - TBM
+# Format date for temporary outputs
 ddmm = Dates.format(today(), "mm-dd")
+timestamp = Dates.format(now(), "yyyymmdd-HH_MM_SS")
+
+# Open log file
+# logfile = open("output/logs/model_log_$(timestamp).txt", "w")
+# redirect_stdout(logfile)
+# redirect_stderr(logfile)
 
 
-println("Starting model solution...")
+@info("Starting model solution...")
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #------------------# 1. INITIALIZE GRIDS FOR OPTIMISATION  #------------------#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
-println("Making grids...")
+@info("Making grids...")
 
 # Assets
 a_grid = makeGrid(gpar.a_min, gpar.a_max, gpar.N_a)
@@ -59,16 +65,22 @@ l_grid = makeGrid(gpar.l_min, gpar.l_max, gpar.N_l)
 # Extract stable distribution from transition matrix
 rho_dist = find_stable_dist(pi_rho)
 
-# # Taxation parameters - baseline calibration
+# Taxation parameters - baseline calibration
 taxes = Taxes(0.7, 0.2, # lambda_y, tau_y, 
             0.7, 0.136, #lambda_c, tau_c,
-            0.0 # tau_k
+            0.2 # tau_k
             )
 
-taxes = Taxes(1.0, 0.0, # lambda_y, tau_y, 
-1.0, 0.0, #lambda_c, tau_c,
-0.0 # tau_k
-)
+# # Taxation parameters - no taxes            
+# taxes = Taxes(1.0, 0.0, # lambda_y, tau_y, 
+# 1.0, 0.0, #lambda_c, tau_c,
+# 0.0 # tau_k
+# )
+
+# Taxes' progressivity parameters
+cons_prog = range(0.0, 0.5, 2)
+labor_prog = range(0.0, 0.5, 2)
+
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
@@ -76,89 +88,57 @@ taxes = Taxes(1.0, 0.0, # lambda_y, tau_y,
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
-function ComputeEquilibrium(
-    a_grid, rho_grid, l_grid,
-    gpar, hhpar, fpar, taxes,
-    pi_rho, comp_params
-)
-    #--- Initial bounds for interest rate (r) for bisection method
-    r_low = -fpar.delta
-    r_high = 1 / hhpar.beta - 1
-    r_mid = (r_low + r_high) / 2
-    ω = 0.5  # Weight for dampened update of r
+# Solve for several combinations of taxes' progressivity
+# Keeping lambdas constant 
 
-    #--- Wage implied by firm's FOC given r
-    opt_wage(r) = (1 - fpar.alpha) * fpar.tfp *
-                  ((fpar.alpha * fpar.tfp / (r + fpar.delta)) ^ (fpar.alpha / (1 - fpar.alpha)))
-    w = opt_wage(r_mid)
+for prl_i in eachindex(labor_prog)
+    for prc_i in eachindex(cons_prog)
+        # Set progressivity rates
+        taxes.tau_y = labor_prog[prl_i]
+        taxes.tau_c = cons_prog[prc_i]
 
-    #--- Begin equilibrium loop
-    @elapsed for iter in 1:comp_params.ms_max_iter
+        @info("Solving for τ_y: $(taxes.tau_y), τ_c: $(taxes.tau_c), τ_k: $(taxes.tau_k)")
 
-        ###### 1. Household Problem ######
-        (hh_labor_taxes, hh_consumption, hh_consumption_tax,
-         opt_c_FOC, opt_l_FOC, valuef, policy_a,
-         policy_l, policy_c) = SolveHouseholdProblem(
-             a_grid, rho_grid, l_grid, gpar, w, r_mid, taxes,
-             hhpar, pi_rho, comp_params
-         )
+        # Compute equilibrium 
+        @elapsed r, w, stat_dist, valuef, policy_a, policy_l, policy_c, 
+                rates, errors = ComputeEquilibrium(a_grid, rho_grid, l_grid, 
+                                                    gpar, hhpar, fpar, taxes,
+                                                    pi_rho, comp_params)
 
-        ###### 2. Stationary Distribution ######
-        stat_dist = stationary_distribution(
-            a_grid, pi_rho, policy_a, gpar;
-            tol = 1e-10, max_iter = 10_000
+        # plot_heatmap_stationary_distribution(stat_dist; taxes=taxes)
+
+        # Compute other useful distributions and aggregates
+        consumption_dist, consumption_tax_dist, labor_tax_dist, 
+        capital_tax_dist, aggC, aggT_c, aggT_y, aggT_k = compute_aggregates(stat_dist, policy_a, policy_c, policy_l, rho_grid, a_grid, w, r, taxes);
+
+        # Plot rates vs errors
+        # scatter(rates, errors)
+
+        # Interpolate and return value function and policy functions
+        # valuef_int, policy_a_int, policy_c_int, policy_l_int = interpolate_policy_funs(valuef, policy_a, policy_c, policy_l, rho_grid, a_grid);
+
+        # Plot policy functions if necessary
+        # plot_household_policies(valuef, policy_a, policy_l, policy_c,
+        #                                  a_grid, rho_grid, taxes;
+        #                                  plot_types = ["value", "assets", "labor", "consumption"],
+        #                                  save_plots = false)
+
+        # Save to file equilibrium details 
+        items = Dict(:r => r, :w => w, :stat_dist => stat_dist,
+            :policy_a => policy_a, :policy_l => policy_l, :policy_c => policy_c,
+            :consumption_dist => consumption_dist, :consumption_tax_dist => consumption_tax_dist,
+            :labor_tax_dist => labor_tax_dist, :capital_tax_dist => capital_tax_dist,
+            :aggC => aggC, :aggT_c => aggT_c, :aggT_y => aggT_y, :aggT_k => aggT_k,
         )
-
-        ###### 3. Aggregates ######
-        asset_supply = sum(stat_dist * a_grid)  # asset by productivity
-        labor_supply = sum(stat_dist .* policy_l)
-        consumption_demand = sum(stat_dist .* policy_c)
-
-        ###### 4. Firm's Capital Demand from FOC ######
-        asset_demand = ((fpar.alpha * fpar.tfp) / (r_mid + fpar.delta)) ^
-                       (1 / (1 - fpar.alpha)) * labor_supply
-
-        ###### 5. Check for Market Clearing ######
-        K_error = asset_demand - asset_supply
-
-        println("Iter $iter: r = $(round(r_mid, digits=5)), w = $(round(w, digits=5)), K_supply = $(round(asset_supply, digits=5)), K_demand = $(round(asset_demand, digits=5)), error = $(round(K_error, digits=5))")
-
-        if abs(K_error) < comp_params.ms_tol
-            println("✅ Equilibrium found: r = $r_mid, w = $w after $iter iterations")
-            return r_mid, w, stat_dist, valuef, policy_a, policy_l, policy_c
+        
+        for (name, mat) in items
+            filepath = "./output/preliminary/model_results/" * string(name) * ".txt"
+            SaveMatrix(mat, filepath; overwrite=false)
         end
-
-        ###### 6. Bisection Update of Interest Rate ######
-        if K_error > 0
-            r_low = r_mid  # Excess demand → raise r
-        else
-            r_high = r_mid  # Excess supply → lower r
-        end
-
-        r_new = ω * r_mid + (1 - ω) * ((r_low + r_high) / 2)
-        r_mid = r_new
-        w = opt_wage(r_mid)
     end
-
-    error("❌ Equilibrium not found within max iterations.")
 end
 
-@elapsed r, w, stat_dist, valuef, policy_a, policy_l, policy_c = ComputeEquilibrium(a_grid, rho_grid, l_grid, 
-                                                                            gpar, hhpar, fpar, taxes,
-                                                                            pi_rho, comp_params
-                                                                        )
-
-heatmap(stat_dist, xlabel="a index", ylabel="ρ index")
-
-# Interpolate and return value function and policy functions
-valuef_int, policy_a_int, policy_c_int, policy_l_int = interpolate_policy_funs(valuef, policy_a, policy_c, policy_l, rho_grid, a_grid);
-
-# Plot policy functions if necessary
-plot_household_policies(valuef, policy_a, policy_l, policy_c,
-                                 a_grid, rho_grid, taxes;
-                                 plot_types = ["value", "assets", "labor", "consumption"],
-                                 save_plots = false)
-
+# Bug with 0.5,0.5,0.5 - not converging 
 
 # Adjust grids
 

@@ -130,10 +130,10 @@ function find_stable_dist(transition_matrix; max_iter = 5000)
     for iter in 1:max_iter
         temp .= p * stable_dist
         if maximum(abs, temp .- stable_dist) < 1e-9
-            println("Stable distribution: found solution after $iter iterations")
+            # @info("Stable distribution: found solution after $iter iterations")
             return temp
         elseif iter == max_iter
-            error("No solution found after $iter iterations")
+            @error("No solution found after $iter iterations")
         end
         stable_dist .= temp
     end
