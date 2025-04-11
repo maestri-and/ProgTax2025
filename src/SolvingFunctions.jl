@@ -338,7 +338,7 @@ end
 # derived analytically to estimate optimal consumption and labor as 
 # functions of (ρ, a, a'), to reduce households problem to a single choice
 
-function find_opt_cons_labor(rho_grid, a_grid, w, net_r, taxes, hhpar, gpar; enforce_labor_cap = true, replace_neg_consumption = true)
+function find_opt_cons_labor(rho_grid, a_grid, w, net_r, taxes, hhpar, gpar; replace_neg_consumption = true)
     # Create matrices for optimal consumption and optimal labor
     opt_consumption = zeros(gpar.N_rho, gpar.N_a, gpar.N_a)
     opt_labor = zeros(gpar.N_rho, gpar.N_a, gpar.N_a)
@@ -358,100 +358,62 @@ function find_opt_cons_labor(rho_grid, a_grid, w, net_r, taxes, hhpar, gpar; enf
         # Define the wage as a function of c using the labor supply function
         wage_star(c) = rho * w * get_opt_labor_from_FOC(c, rho, w, taxes, hhpar)
     
-        if enforce_labor_cap
-            for a_i in 1:gpar.N_a
-                for a_prime_i in 1:gpar.N_a
-                    # Compute saving returns + saving expenditure (rhs)
-                    rhs = (1 + net_r) * a_grid[a_i] - a_grid[a_prime_i]
-        
-                    # Define the objective function to solve for optimal consumption (c)
-                    f = c -> 2 * c - taxes.lambda_c * c^(1 - taxes.tau_c) - taxes.lambda_y * wage_star(c) ^ (1 - taxes.tau_y) - rhs
+        for a_i in 1:gpar.N_a
+            for a_prime_i in 1:gpar.N_a
+                # Compute saving returns + saving expenditure (rhs)
+                rhs = (1 + net_r) * a_grid[a_i] - a_grid[a_prime_i]
+    
+                # Define the objective function to solve for optimal consumption (c)
+                f = c -> 2 * c - taxes.lambda_c * c^(1 - taxes.tau_c) - taxes.lambda_y * wage_star(c) ^ (1 - taxes.tau_y) - rhs
 
-                    # plot_f(f, x_min = 0, x_max = 0.5)
+                # plot_f(f, x_min = 0, x_max = 0.05)
 
-                    try
-                        # Find solution, if any - Dismissed Newton method as it was giving wrong solution!
-                        # Bisection is 5x slower but safer, Brent is slightly faster (4x slower than Secant Order1())                       
-                        # opt_c = find_zero(f, 1, Roots.Order1()) 
-                        # opt_c = find_zero(f, (1e-6, 0.5), Roots.Bisection())
-                        # opt_c = find_zero(f, (0.0, 10), Roots.Brent())
-                        
-                        # Update: hybrid function trying secant method first and bisection in case of failure
-                        opt_c = robust_root_FOC(f, 1e-8, 0.5)   # Use a very low lower bound to avoid bracketing error with bisection
+                try
+                    # Find solution, if any - Dismissed Newton method as it was giving wrong solution!
+                    # Bisection is 5x slower but safer, Brent is slightly faster (4x slower than Secant Order1())                       
+                    # opt_c = find_zero(f, 1, Roots.Order1()) 
+                    # opt_c = find_zero(f, (1e-6, 0.5), Roots.Bisection())
+                    # opt_c = find_zero(f, (0.0, 10), Roots.Brent())
+                    
+                    # Update: hybrid function trying secant method first and bisection in case of failure
+                    opt_c = robust_root_FOC(f, 1e-8, 0.5)   # Use a very low lower bound to avoid bracketing error with bisection
 
-                        # Find optimal labor implied
-                        opt_l = get_opt_labor_from_FOC(opt_c, rho, w, taxes, hhpar)
+                    # Find optimal labor implied
+                    opt_l = get_opt_labor_from_FOC(opt_c, rho, w, taxes, hhpar)
 
-                        # Check whether it is within boundaries, if not 
-                        # replace with l = 1 and recompute consumption
-                        # exploiting concavity of utility function
-                        if opt_l > 1
-                            # Assign max to labor
-                            opt_l = 1 
-                            # Recompute consumption according to budget constraint
-                            opt_c = get_opt_c_with_max_labor(rho, a_grid[a_i], a_grid[a_prime_i], w, net_r, taxes; max_labor = 1)
-                        end
+                    # Check whether it is within boundaries, if not 
+                    # replace with l = 1 and recompute consumption
+                    # exploiting concavity of utility function
+                    if opt_l > 1
+                        # Assign max to labor
+                        opt_l = 1 
+                        # Recompute consumption according to budget constraint
+                        opt_c = get_opt_c_with_max_labor(rho, a_grid[a_i], a_grid[a_prime_i], w, net_r, taxes; max_labor = 1)
+                    end
 
-                        # Check budget constraint holds! - TBM: Consider removing check to improve performances if safe enough
-                        if isfinite(opt_c)
-                            try 
-                                @assert (2*opt_c - taxes.lambda_c*opt_c^(1 - taxes.tau_c)) - (taxes.lambda_y * (rho * w * opt_l) ^ (1 - taxes.tau_y) + rhs) < 0.0001
-                            catch AssertionError
-                                @info("Budget constraint error at rho_i: $rho_i, a_i: $a_i, a_prime_i: $a_prime_i ")
-                                throw(AssertionError)
-                            end
-                        end
-
-                        # Store values
-                        @views opt_consumption[rho_i, a_i, a_prime_i] = opt_c
-                        @views opt_labor[rho_i, a_i, a_prime_i] = opt_l
-
-                    catch e
-                        if isa(e, DomainError)
-                            # Handle DomainError by returning -Inf
-                            @views opt_consumption[rho_i, a_i, a_prime_i] = -Inf
-                            @views opt_labor[rho_i, a_i, a_prime_i] = Inf
-                        else
-                            # Rethrow other exceptions
-                            @info("Unexpected error at rho_i: $rho_i, a_i: $a_i, a_prime_i: $a_prime_i ")
-                            throw(e)
+                    # Check budget constraint holds! - TBM: Consider removing check to improve performances if safe enough
+                    if isfinite(opt_c)
+                        try 
+                            @assert (2*opt_c - taxes.lambda_c*opt_c^(1 - taxes.tau_c)) - (taxes.lambda_y * (rho * w * opt_l) ^ (1 - taxes.tau_y) + rhs) < 0.0001
+                        catch AssertionError
+                            @info("Budget constraint error at rho_i: $rho_i, a_i: $a_i, a_prime_i: $a_prime_i ")
+                            throw(AssertionError)
                         end
                     end
-                end
-            end
-        else
-            for a_i in 1:gpar.N_a
-                for a_prime_i in 1:gpar.N_a
-                    # Compute saving returns + saving expenditure (rhs)
-                    rhs = (1 + net_r) * a_grid[a_i] - a_grid[a_prime_i]
-        
-                    # Define the objective function to solve for optimal consumption (c)
-                    f = c -> 2 * c - taxes.lambda_c * c^(1 - taxes.tau_c) - taxes.lambda_y * wage_star(c) ^ (1 - taxes.tau_y) - rhs
-        
-                    try
-                        # Find solution, if any - Dismissed Newton method as it was giving wrong solution!
-                        # Bisection is 5x slower but safer, Brent is slightly faster (4x slower than Secant Order1())
-                        # opt_c = find_zero(f, 0.5, Roots.Order1()) #0.5 Initial guess, adjustable
-                        # opt_c = find_zero(f, (1e-6, 2*a_grid_max), Roots.Bisection())
-                        opt_c = find_zero(f, (1e-6, root_max), Roots.Brent())
 
-                        # Find optimal labor implied
-                        opt_l = get_opt_labor_from_FOC(opt_c, rho, w, taxes, hhpar)
+                    # Store values
+                    @views opt_consumption[rho_i, a_i, a_prime_i] = opt_c
+                    @views opt_labor[rho_i, a_i, a_prime_i] = opt_l
 
-                        
-
-                        @views opt_consumption[rho_i, a_i, a_prime_i] = opt_c 
-                        # Get optimal labor
-                        @views opt_labor[rho_i, a_i, a_prime_i] = opt_l
-                    catch e
-                        if isa(e, DomainError)
-                            # Handle DomainError by returning -Inf
-                            @views opt_consumption[rho_i, a_i, a_prime_i] = -Inf
-                            @views opt_labor[rho_i, a_i, a_prime_i] = -Inf
-                        else
-                            # Rethrow other exceptions
-                            throw(e)
-                        end
+                catch e
+                    if isa(e, DomainError) || isa(e, ArgumentError)
+                        # Handle DomainError by returning -Inf
+                        @views opt_consumption[rho_i, a_i, a_prime_i] = -Inf
+                        @views opt_labor[rho_i, a_i, a_prime_i] = Inf
+                    else
+                        # Rethrow other exceptions
+                        @info("Unexpected error at rho_i: $rho_i, a_i: $a_i, a_prime_i: $a_prime_i ")
+                        throw(e)
                     end
                 end
             end
@@ -706,7 +668,6 @@ function SolveHouseholdProblem(a_grid, rho_grid, l_grid, gpar, w, r, taxes, hhpa
 
     opt_c_FOC, opt_l_FOC = find_opt_cons_labor(
         rho_grid, a_grid, w, net_r, taxes, hhpar, gpar;
-        enforce_labor_cap = true,
         replace_neg_consumption = true
     );
 
@@ -893,7 +854,7 @@ end
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
-function compute_aggregates(stat_dist, policy_a, policy_c, policy_l, rho_grid, a_grid, w, r, taxes)
+function compute_aggregates(stat_dist, policy_a, policy_c, policy_l, rho_grid, a_grid, w, r, taxes; raise_bc_error = true)
     # Consumption 
     consumption_dist = stat_dist .* policy_c
     aggC = sum(stat_dist .* policy_c)
@@ -911,10 +872,13 @@ function compute_aggregates(stat_dist, policy_a, policy_c, policy_l, rho_grid, a
     aggT_k = sum(stat_dist * capital_tax_dist)
 
     # Doublecheck budget constraint holding for optimal policies - Get max discrepancy
-    max_discrepancy = maximum(abs.(policy_c .+ consumption_tax_policy .- (gross_labor_income .- labor_tax_policy .+ ((1 + (1 - taxes.tau_k)r) .* (ones(7, 1) * a_grid')) .- policy_a)))
-    if max_discrepancy > 0.01
-        @error("Max discrepancy is larger than 0.01! Doublecheck accuracy!")
+    max_discrepancy = findmax(abs.(policy_c .+ consumption_tax_policy .- (gross_labor_income .- labor_tax_policy .+ ((1 + (1 - taxes.tau_k)r) .* (ones(7, 1) * a_grid')) .- policy_a)))
+    if max_discrepancy[1] > 0.01 && raise_bc_error
+        @error("Max discrepancy is larger than 0.01! Doublecheck accuracy! $max_discrepancy")
+    elseif max_discrepancy[1] > 0.01 && !raise_bc_error
+        @warn("Max discrepancy is larger than 0.01! Doublecheck accuracy! $max_discrepancy")
     end
+
 
     return(consumption_dist, consumption_tax_dist, labor_tax_dist, capital_tax_dist, aggC, aggT_c, aggT_y, aggT_k)
 end

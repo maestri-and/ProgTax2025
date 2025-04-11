@@ -41,7 +41,7 @@ function get_opt_labor_from_FOC(c, rho, w, taxes, hhpar; neg_consumption_error =
         throw("Passed negative consumption to labor FOC!")
     else
         l_star = (((taxes.lambda_y * (1 - taxes.tau_y) * (rho * w)^(1 - taxes.tau_y)) * c^(-hhpar.rra)) / #Numerator
-        (hhpar.phi * (2 - taxes.lambda_c * (1 - taxes.tau_c) * c ^ (-taxes.tau_c))) #Denominator
+        (hhpar.phi * (2 - taxes.lambda_c * (1 - taxes.tau_c) * c ^ (-taxes.tau_c))) #Denominator - TBM This can be negative with negative tau_c!
         ) ^ (1 / (hhpar.frisch + taxes.tau_y)) # Exponent
     end
     return l_star

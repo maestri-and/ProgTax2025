@@ -23,6 +23,7 @@ using Plots
 using BenchmarkTools
 using Dates
 using Infiltrator
+# using CairoMakie: surface, Figure, Axis3
 
 
 include("Parameters.jl")
@@ -46,6 +47,7 @@ timestamp = Dates.format(now(), "yyyymmdd-HH_MM_SS")
 
 
 @info("Starting model solution...")
+
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #------------------# 1. INITIALIZE GRIDS FOR OPTIMISATION  #------------------#
@@ -55,7 +57,8 @@ timestamp = Dates.format(now(), "yyyymmdd-HH_MM_SS")
 @info("Making grids...")
 
 # Assets
-a_grid = makeGrid(gpar.a_min, gpar.a_max, gpar.N_a)
+# a_grid = makeGrid(gpar.a_min, gpar.a_max, gpar.N_a; grid_type = "polynomial", pol_power = 4)
+a_grid = makeGrid(gpar.a_min, gpar.a_max, gpar.N_a; grid_type = "log")
 
 # Labor
 l_grid = makeGrid(gpar.l_min, gpar.l_max, gpar.N_l)
@@ -77,9 +80,24 @@ taxes = Taxes(0.7, 0.2, # lambda_y, tau_y,
 # 0.0 # tau_k
 # )
 
+# Taxation parameters - Regressive taxes            
+# taxes = Taxes(0.7, -0.1, # lambda_y, tau_y, 
+# 0.8, -0.1, #lambda_c, tau_c,
+# 0.2 # tau_k
+# )
+
+# Taxation parameters - custom       
+taxes = Taxes(0.7, 0.17692307692307693, # lambda_y, tau_y, 
+0.7, 0.3153846153846154, #lambda_c, tau_c,
+0.2 # tau_k
+)
+
 # Taxes' progressivity parameters
 cons_prog = range(0.0, 0.5, 2)
 labor_prog = range(0.0, 0.5, 2)
+
+# cons_prog = range(0.0, 0.5, 21)
+# labor_prog = range(0.0, 0.5, 21)
 
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
@@ -97,7 +115,7 @@ for prl_i in eachindex(labor_prog)
         taxes.tau_y = labor_prog[prl_i]
         taxes.tau_c = cons_prog[prc_i]
 
-        @info("Solving for τ_y: $(taxes.tau_y), τ_c: $(taxes.tau_c), τ_k: $(taxes.tau_k)")
+        @info("Solving for λ_y: $(taxes.lambda_y),  τ_y: $(taxes.tau_y), λ_c: $(taxes.lambda_c), τ_c: $(taxes.tau_c), τ_k: $(taxes.tau_k)")
 
         # Compute equilibrium 
         @elapsed r, w, stat_dist, valuef, policy_a, policy_l, policy_c, 
@@ -105,23 +123,30 @@ for prl_i in eachindex(labor_prog)
                                                     gpar, hhpar, fpar, taxes,
                                                     pi_rho, comp_params)
 
-        # plot_heatmap_stationary_distribution(stat_dist; taxes=taxes)
+        # Plot stationary distribution 
+        plot_heatmap_stationary_distribution(stat_dist; taxes=taxes)
+        plot_density_by_productivity(stat_dist, a_grid, gpar; rho_grid=nothing)
 
         # Compute other useful distributions and aggregates
         consumption_dist, consumption_tax_dist, labor_tax_dist, 
-        capital_tax_dist, aggC, aggT_c, aggT_y, aggT_k = compute_aggregates(stat_dist, policy_a, policy_c, policy_l, rho_grid, a_grid, w, r, taxes);
+        capital_tax_dist, aggC, aggT_c, aggT_y, aggT_k = compute_aggregates(stat_dist, policy_a, policy_c, 
+                                                                            policy_l, rho_grid, a_grid, w, r, taxes;
+                                                                            raise_bc_error = false);
 
         # Plot rates vs errors
-        # scatter(rates, errors)
+        # scatter(rates, errors, xlabel = "Interest rate", ylabel = "Capital market error")
 
         # Interpolate and return value function and policy functions
         # valuef_int, policy_a_int, policy_c_int, policy_l_int = interpolate_policy_funs(valuef, policy_a, policy_c, policy_l, rho_grid, a_grid);
 
         # Plot policy functions if necessary
-        # plot_household_policies(valuef, policy_a, policy_l, policy_c,
-        #                                  a_grid, rho_grid, taxes;
-        #                                  plot_types = ["value", "assets", "labor", "consumption"],
-        #                                  save_plots = false)
+        plot_household_policies(valuef, policy_a, policy_l, policy_c,
+                                         a_grid, rho_grid, taxes;
+                                         plot_types = ["value", "assets", "labor", "consumption"],
+                                         save_plots = false)
+
+        # 3D plot: labor policy function
+        # plot_policy_function_3d(policy_l, a_grid, rho_grid; policy_type="labor")
 
         # Save to file equilibrium details 
         items = Dict(:r => r, :w => w, :stat_dist => stat_dist,
@@ -138,9 +163,7 @@ for prl_i in eachindex(labor_prog)
     end
 end
 
-# Bug with 0.5,0.5,0.5 - not converging 
-
-# Adjust grids
+@info("Solved all steady states!")
 
 #######################################################################################
 

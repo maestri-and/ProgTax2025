@@ -36,7 +36,7 @@ function find_c_feldstein(k, lambda_c, tau_c; notax_upper=nothing)
         # Find solution, if any
         c_star = find_zero(f, 0.5) #0.5 Initial guess, adjustable
     catch e
-        if isa(e, DomainError)
+        if isa(e, DomainError) | isa(e, Roots.ConvergenceFailed)
             # Handle DomainError by returning -Inf
             return -Inf
         else

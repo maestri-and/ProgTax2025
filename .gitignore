@@ -6,6 +6,8 @@ working_code.jl
 # Preliminary outputs
 output/preliminary/local/
 output/temp/
+output/preliminary/model_results/-1to10_len100_unif/
+output/preliminary/model_results/-1to60_len200_log/
 # VSCode settings
 .vscode/
 

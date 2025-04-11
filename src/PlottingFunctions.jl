@@ -9,7 +9,8 @@
 
 using StatsBase
 using Plots
-using GLMakie: surface, Figure, Axis3
+using CairoMakie: Figure, Axis3, surface!, save, colormap, wireframe!, cgrad, Label
+# using CairoMakie: surface, Figure, Axis3 # Change here to GLMakie for interactive plots
 using LaTeXStrings
 
 
@@ -270,7 +271,7 @@ function plot_utility_implied_by_labor_FOC(rho, w, taxes, hhpar)
     fig = Figure(size=(800, 600))
     ax = Axis3(fig[1, 1], xlabel="Consumption (c)", ylabel="Labor (l)", zlabel="Utility U(c,l)", title="Utility Implied by Labor FOC")
 
-    GLMakie.surface!(ax, C, L, U, colormap=:viridis)
+    CairoMakie.surface!(ax, C, L, U, colormap=:viridis)
 
     display(fig)  # Show the figure
 end
@@ -321,7 +322,6 @@ end
 ################### 4. PLOTTING VALUE AND POLICY FUNCTIONS ####################
 ###############################################################################
 
-
 function plot_value_function(V_new, a_grid, rho_grid; taxes=taxes)
     """
     Plots the value function for each productivity level with interpolation.
@@ -338,23 +338,24 @@ function plot_value_function(V_new, a_grid, rho_grid; taxes=taxes)
     # Subtitle string with tax parameters
     tax_info = "λ_y=$(taxes.lambda_y), τ_y=$(taxes.tau_y), λ_c=$(taxes.lambda_c), τ_c=$(taxes.tau_c), τ_k=$(taxes.tau_k)"
 
-    # Initialize plot
-    p = plot(title=LaTeXString("Value Function by Productivity Level\n\$$(tax_info)\$"), 
-             xlabel="Assets (a)", ylabel="Value Function V(a, ρ)", legend=:bottomright)
+    # Define main title and subtitle
+    main_title = "Value Function by Productivity Level"
+    tax_subtitle = LaTeXString("\$$(tax_info)\$")
 
-    # Loop over each productivity level
+    # Title-only dummy plot (acts as suptitle)
+    suptitle = plot(title=main_title, grid=false, showaxis=false, bottom_margin=-35Plots.px)
+
+    # Actual content plot
+    p = plot(title=tax_subtitle, xlabel="Assets (a)", ylabel="Value Function V(a, ρ)", legend=:bottomright)
+
     for i_rho in 1:size(V_new, 1)
-        # Interpolate value function using cubic splines
         itp = interpolate((a_grid,), V_new[i_rho, :], Gridded(Linear()))
-        a_dense = range(minimum(a_grid), maximum(a_grid), length=200)  # Fine grid
+        a_dense = range(minimum(a_grid), maximum(a_grid), length=200)
         V_interp = [itp(a) for a in a_dense]
-
-        # Plot interpolated curve
         plot!(p, a_dense, V_interp, label="ρ = $(rho_grid[i_rho])", lw=2)
     end
 
-    # Display the plot
-    return p
+    return plot(suptitle, p, layout = @layout([A{0.01h}; B]))
 end
 
 function plot_policy_function(policy_data, a_grid, rho_grid; policy_type="assets", taxes=taxes)
@@ -386,8 +387,12 @@ function plot_policy_function(policy_data, a_grid, rho_grid; policy_type="assets
     tax_info = "λ_y=$(taxes.lambda_y), τ_y=$(taxes.tau_y), λ_c=$(taxes.lambda_c), τ_c=$(taxes.tau_c), τ_k=$(taxes.tau_k)"
 
     # Initialize plot
-    p = plot(title=LaTeXString("$title_text\n\$$(tax_info)\$"), 
-                xlabel="Current Assets (a)", ylabel=ylabel_text, legend=leg_pos)
+    policy_title = title_text 
+    tax_subtitle = LaTeXString("\$$(tax_info)\$")
+
+    suptitle = plot(title = policy_title, grid = false, showaxis = false, bottom_margin = -35Plots.px)
+    
+    p = plot(title = tax_subtitle, xlabel="Current Assets (a)", ylabel=ylabel_text, legend=leg_pos)
 
     a_dense = range(minimum(a_grid), maximum(a_grid), length=200)
 
@@ -395,20 +400,22 @@ function plot_policy_function(policy_data, a_grid, rho_grid; policy_type="assets
         # Callable interpolants: Spline2D, clamped func, GriddedInterpolation
         for rho_val in rho_grid
             vals = [policy_data(rho_val, a) for a in a_dense]
-            plot!(p, a_dense, vals, label="ρ = $(round(rho_val, digits=4))", lw=2)
+            plot!(p, a_dense, vals, label="ρ = $(round(rho_val, digits=4))", 
+                     lw=2, title = tax_subtitle)
         end
     
     elseif isa(policy_data, AbstractMatrix)
         # Raw matrix input
         for i_rho in 1:length(rho_grid)
-            plot!(p, a_grid, policy_data[i_rho, :], label="ρ = $(rho_grid[i_rho])", lw=2)
+            plot!(p, a_grid, policy_data[i_rho, :], label="ρ = $(rho_grid[i_rho])", 
+                     lw=2, title = tax_subtitle)
         end
 
     else
         @error("Invalid input type for policy_data.")
     end
 
-    return p
+    return plot(suptitle, p, layout = @layout([A{0.01h}; B]))
 end
 
 function plot_household_policies(valuef, policy_a_int, policy_l_int, policy_c,
@@ -464,6 +471,78 @@ function plot_household_policies(valuef, policy_a_int, policy_l_int, policy_c,
     end
 end
 
+# 3D plot
+
+function plot_policy_function_3d(policy_data, a_grid, rho_grid; policy_type="labor", taxes=taxes)
+    titles = Dict(
+        "assets"      => ("Asset Policy Function", "Future Assets"),
+        "labor"       => ("Labor Policy Function", "Labor Supply"),
+        "consumption" => ("Consumption Policy Function", "Consumption")
+    )
+
+    haskey(titles, policy_type) || error("Invalid policy_type. Choose 'assets', 'labor', or 'consumption'.")
+    title_text, zlabel_text = titles[policy_type]
+
+    a_dense = range(minimum(a_grid), maximum(a_grid), length=100)
+    ρ_dense = range(minimum(rho_grid), maximum(rho_grid), length=length(rho_grid))
+
+    A = repeat(a_dense', length(ρ_dense), 1)
+    R = repeat(ρ_dense, 1, length(a_dense))
+    Z = similar(A)
+
+    if typeof(policy_data) <: Function || typeof(policy_data) <: Interpolations.GriddedInterpolation
+        for i in 1:length(ρ_dense), j in 1:length(a_dense)
+            Z[i, j] = policy_data(ρ_dense[i], a_dense[j])
+        end
+    elseif isa(policy_data, AbstractMatrix)
+        interp = Interpolations.interpolate((rho_grid, a_grid), policy_data, Interpolations.Gridded(Interpolations.Linear()))
+        for i in 1:length(ρ_dense), j in 1:length(a_dense)
+            Z[i, j] = interp(ρ_dense[i], a_dense[j])
+        end
+    else
+        error("Invalid input type for policy_data.")
+    end
+
+    fig = CairoMakie.Figure()
+
+    # Title
+    CairoMakie.Label(
+    fig[1, 1, Top()], title_text;
+    fontsize = 18,
+    halign = :center,
+    padding = (0, 0, 10, 0))
+
+    # Adjust distance
+    # CairoMakie.rowgap!(fig.layout, -250)
+
+    ax = CairoMakie.Axis3(
+    fig[1, 1],
+    # title = title_text,
+    xlabel = "Asset holdings",
+    ylabel = "Skill level",
+    zlabel = zlabel_text,
+    azimuth = -.25π,    # horizontal rotation (left-right)
+    # elevation = 30    # vertical tilt
+    )   
+    my_cmap = CairoMakie.cgrad(
+        [:deepskyblue, :deepskyblue, :lime, :yellow, :yellow],  # more blue/yellow anchors
+        [0.0, 0.2, 0.5, 0.8, 1.0],                # positions in [0,1]
+        categorical = false
+    )
+
+    my_cmap = ColorSchemes.turbo.colors        # bright and saturated
+
+
+    CairoMakie.surface!(ax, A, R, Z, colormap = my_cmap,
+                        transparency = false,
+                        colorrange = extrema(Z))
+
+    CairoMakie.wireframe!(ax, A, R, Z; overdraw = true, color = :black, linewidth = 0.3)
+
+    
+    return(fig)
+end
+
 ###############################################################################
 ##################### 5. PLOTTING AGGREGATE DISTRIBUTIONS #####################
 ###############################################################################
@@ -487,19 +566,25 @@ function plot_heatmap_stationary_distribution(stat_dist; taxes=taxes)
     return(p)
 end
 
-function plot_stationary_distribution(a_grid, rho_grid, stat_dist; gpar = gpar)
-    # Create interactive 3D plot
-    # fig = Figure(size=(800, 600))
-    # ax = Axis3(fig[1, 1], xlabel="Assets", ylabel="Productivity", zlabel="Density")
+function plot_density_by_productivity(stat_dist, a_grid, gpar; rho_grid=nothing)
 
-    # A = repeat(a_grid', gpar.N_rho, 1)             # shape: N_rho × N_a
-    # R = repeat(rho_grid, 1, gpar.N_a)              # shape: N_rho × N_a
+    plt = plot(
+        xlabel = "Wealth (a)",
+        ylabel = "Density",
+        title = "Stationary distribution by productivity level",
+        legend = :topright,
+        linewidth = 2
+    )
 
-    # surface!(ax, A, R, stat_dist; colormap = :viridis)
-    surface(a_grid, rho_grid, stat_dist; colormap = :viridis)
+    for i in 1:gpar.N_rho
+        label = isnothing(rho_grid) ? "ρ = $i" : "ρ = $(round(rho_grid[i], digits=2))"
+        plot!(plt, a_grid, stat_dist[i, :], label = label)
+    end
 
-    fig
+    return plt
 end
+
+
 
     
     
