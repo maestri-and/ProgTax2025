@@ -255,7 +255,7 @@ end
 # cont_values = [cont_interp(a_prime, rho_val) for a_prime in a_prime_values]
 
 # # Plot the relationship between assets today (a) vs. assets tomorrow (a') and the continuation value
-# plot(a_values, cont_values, label="Continuation Value", xlabel="Assets Today (a)", ylabel="Continuation Value", title="Interpolation of Continuation Value for ρ = $rho_val")
+# Plots.plot(a_values, cont_values, label="Continuation Value", xlabel="Assets Today (a)", ylabel="Continuation Value", title="Interpolation of Continuation Value for ρ = $rho_val")
 
 ###############################################################################
   ##################### 5. INTERPOLATE POLICY FUNCTIONS #####################

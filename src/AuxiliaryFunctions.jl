@@ -57,9 +57,28 @@ end
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
-#-----------------# 1. EXPORTING AND IMPORTING MODEL RESULTS #----------------#
+#-----------------# 2. EXPORTING AND IMPORTING MODEL RESULTS #----------------#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+
+# Exporting results session detail 
+function print_simulation_details(filepath::String; 
+                                  session_time = session_time,
+                                  grid_parameters = gpar,
+                                  asset_grid_type = a_gtype)
+    # Write file
+    open(filepath, "w") do file
+        
+        # Write grid details   
+        write(file, "Grid parameters: $(gpar)" * "\n")
+        write(file, "Asset grid type: $(a_gtype)" * "\n")
+        
+        # Write time details
+        write(file, "Time spent: $(session_time)")
+    end
+end
+
+
 
 # Exporting model results: steady states by tax struct
 function SaveMatrix(matrix, filepath::String; overwrite=false, write_parameters = true, taxes=taxes)

@@ -437,10 +437,10 @@ function intVFI(hh_consumption, l_grid, rho_grid, a_grid, hhpar, comp_params,
         # interp_values = policy_interp.(fine_l_grid)  # Evaluate interpolation
 
         # # Plot original data points
-        # scatter(l_grid, policy_a_opt[:, rho_val, a_val], markersize=4, color=:red, label="Original Data")
+        # Plots.scatter(l_grid, policy_a_opt[:, rho_val, a_val], markersize=4, color=:red, label="Original Data")
 
         # # Plot interpolated spline
-        # plot!(fine_l_grid, interp_values, linewidth=2, color=:blue, label="Cubic Spline Interpolation", legend=false)
+        # Plots.plot!(fine_l_grid, interp_values, linewidth=2, color=:blue, label="Cubic Spline Interpolation", legend=false)
 
         # # Titles and labels
         # title!("Interpolated Policy Function (ρ=$rho_val, a=$a_val)")
@@ -515,14 +515,14 @@ end
 colors = palette(:viridis, size(policy_a, 1));
 
 # Plot the interpolated policy functions
-pfa_int = plot(
+pfa_int = Plots.plot(
     fine_grid_a, interp_policy_a[1, :],
     label="ρ = $(rho_grid[1])", color=colors[1], linewidth=2,
     xlabel = "Assets (a)", ylabel = "Next Period Assets (a')",
     title = "Policy Functions for Assets",
     legend = :bottomright);
 
-for rho_i in 2:gpar.N_rho    plot!(pfa_int, fine_grid_a, interp_policy_a[rho_i, :],
+for rho_i in 2:gpar.N_rho    Plots.plot!(pfa_int, fine_grid_a, interp_policy_a[rho_i, :],
           label="ρ = $(rho_grid[rho_i])",
           color=colors[rho_i], linewidth=2)
 end
@@ -557,14 +557,14 @@ end
 colors = palette(:viridis, size(policy_l, 1));
 
 # Plot the interpolated policy functions
-pfl_int = plot(
+pfl_int = Plots.plot(
     fine_grid_a, interp_policy_l[1, :],
     label="ρ = $(rho_grid[1])", color=colors[1], linewidth=2,
     xlabel = "Assets (a)", ylabel = "Labor choice (ℓ)",
     title = "Policy Functions for Labor",
     legend = :bottomright);
 
-for rho_i in 2:gpar.N_rho    plot!(pfl_int, fine_grid_a, interp_policy_l[rho_i, :],
+for rho_i in 2:gpar.N_rho    Plots.plot!(pfl_int, fine_grid_a, interp_policy_l[rho_i, :],
           label="ρ = $(rho_grid[rho_i])",
           color=colors[rho_i], linewidth=2)
 end

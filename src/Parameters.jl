@@ -114,7 +114,7 @@ struct GridParams
 end
 
 
-gpar = GridParams(-1.000, 60.000, 200, # Assets
+gpar = GridParams(-1.000, 80.000, 50, # Assets
                     0.0, 1, 50,    # Labor
                     length(rho_grid) # Productivity 
                     )

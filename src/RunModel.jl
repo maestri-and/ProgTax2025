@@ -38,10 +38,11 @@ include("../tests/TestingFunctions.jl")
 
 # Format date for temporary outputs
 ddmm = Dates.format(today(), "mm-dd")
-timestamp = Dates.format(now(), "yyyymmdd-HH_MM_SS")
+time_start = now()
+timestamp_start = Dates.format(now(), "yyyymmdd-HH_MM_SS")
 
 # Open log file
-# logfile = open("output/logs/model_log_$(timestamp).txt", "w")
+# logfile = open("output/logs/model_log_$(timestamp_start).txt", "w")
 # redirect_stdout(logfile)
 # redirect_stderr(logfile)
 
@@ -57,8 +58,9 @@ timestamp = Dates.format(now(), "yyyymmdd-HH_MM_SS")
 @info("Making grids...")
 
 # Assets
-# a_grid = makeGrid(gpar.a_min, gpar.a_max, gpar.N_a; grid_type = "polynomial", pol_power = 4)
-a_grid = makeGrid(gpar.a_min, gpar.a_max, gpar.N_a; grid_type = "log")
+a_gtype = "polynomial"
+a_grid = makeGrid(gpar.a_min, gpar.a_max, gpar.N_a; grid_type = a_gtype, pol_power = 3)
+# a_grid = makeGrid(gpar.a_min, gpar.a_max, gpar.N_a; grid_type = "log")
 
 # Labor
 l_grid = makeGrid(gpar.l_min, gpar.l_max, gpar.N_l)
@@ -71,7 +73,7 @@ rho_dist = find_stable_dist(pi_rho)
 # Taxation parameters - baseline calibration
 taxes = Taxes(0.7, 0.2, # lambda_y, tau_y, 
             0.7, 0.136, #lambda_c, tau_c,
-            0.2 # tau_k
+            0.26 # tau_k
             )
 
 # # Taxation parameters - no taxes            
@@ -85,12 +87,6 @@ taxes = Taxes(0.7, 0.2, # lambda_y, tau_y,
 # 0.8, -0.1, #lambda_c, tau_c,
 # 0.2 # tau_k
 # )
-
-# Taxation parameters - custom       
-taxes = Taxes(0.7, 0.17692307692307693, # lambda_y, tau_y, 
-0.7, 0.3153846153846154, #lambda_c, tau_c,
-0.2 # tau_k
-)
 
 # Taxes' progressivity parameters
 cons_prog = range(0.0, 0.5, 2)
@@ -117,33 +113,41 @@ for prl_i in eachindex(labor_prog)
 
         @info("Solving for λ_y: $(taxes.lambda_y),  τ_y: $(taxes.tau_y), λ_c: $(taxes.lambda_c), τ_c: $(taxes.tau_c), τ_k: $(taxes.tau_k)")
 
-        # Compute equilibrium 
-        @elapsed r, w, stat_dist, valuef, policy_a, policy_l, policy_c, 
-                rates, errors = ComputeEquilibrium(a_grid, rho_grid, l_grid, 
-                                                    gpar, hhpar, fpar, taxes,
-                                                    pi_rho, comp_params)
+        # Compute equilibrium - Newton jumping a lot for small errors!
+        r, w, stat_dist, valuef, policy_a, policy_l, policy_c, 
+        rates, errors = ComputeEquilibrium_Newton(a_grid, rho_grid, l_grid, 
+                                            gpar, hhpar, fpar, taxes,
+                                            pi_rho, comp_params)
 
         # Plot stationary distribution 
-        plot_heatmap_stationary_distribution(stat_dist; taxes=taxes)
-        plot_density_by_productivity(stat_dist, a_grid, gpar; rho_grid=nothing)
+        # plot_heatmap_stationary_distribution(stat_dist; taxes=taxes)
+        # plot_density_by_productivity(stat_dist, a_grid, gpar; rho_grid=nothing)
 
         # Compute other useful distributions and aggregates
-        consumption_dist, consumption_tax_dist, labor_tax_dist, 
-        capital_tax_dist, aggC, aggT_c, aggT_y, aggT_k = compute_aggregates(stat_dist, policy_a, policy_c, 
+        consumption_dist, capital_dist, labor_dist,
+        consumption_tax_dist, labor_tax_dist, capital_tax_dist, 
+        aggC, aggK, aggL, aggG,
+        aggT_c, aggT_y, aggT_k, bc_max_discrepancy = compute_aggregates(stat_dist, policy_a, policy_c, 
                                                                             policy_l, rho_grid, a_grid, w, r, taxes;
                                                                             raise_bc_error = false);
 
+        # Check goods market clears
+        # C + I + G = Y
+        # aggY = cd_production(fpar.tfp, fpar.alpha, aggK, aggL)
+        # aggI = fpar.delta * aggK        # Implied by low of motion of capital in steady state
+        # abs(aggC + aggI + aggG - aggY) < 0.01
+
         # Plot rates vs errors
-        # scatter(rates, errors, xlabel = "Interest rate", ylabel = "Capital market error")
+        # Plots.scatter(rates, errors, xlabel = "Interest rate", ylabel = "Capital market error")
 
         # Interpolate and return value function and policy functions
         # valuef_int, policy_a_int, policy_c_int, policy_l_int = interpolate_policy_funs(valuef, policy_a, policy_c, policy_l, rho_grid, a_grid);
 
         # Plot policy functions if necessary
-        plot_household_policies(valuef, policy_a, policy_l, policy_c,
-                                         a_grid, rho_grid, taxes;
-                                         plot_types = ["value", "assets", "labor", "consumption"],
-                                         save_plots = false)
+        # plot_household_policies(valuef, policy_a, policy_l, policy_c,
+        #                                  a_grid, rho_grid, taxes;
+        #                                  plot_types = ["value", "assets", "labor", "consumption"],
+        #                                  save_plots = false)
 
         # 3D plot: labor policy function
         # plot_policy_function_3d(policy_l, a_grid, rho_grid; policy_type="labor")
@@ -151,9 +155,10 @@ for prl_i in eachindex(labor_prog)
         # Save to file equilibrium details 
         items = Dict(:r => r, :w => w, :stat_dist => stat_dist,
             :policy_a => policy_a, :policy_l => policy_l, :policy_c => policy_c,
-            :consumption_dist => consumption_dist, :consumption_tax_dist => consumption_tax_dist,
-            :labor_tax_dist => labor_tax_dist, :capital_tax_dist => capital_tax_dist,
-            :aggC => aggC, :aggT_c => aggT_c, :aggT_y => aggT_y, :aggT_k => aggT_k,
+            :consumption_dist => consumption_dist, :capital_dist => capital_dist, :labor_dist => labor_dist,
+            :consumption_tax_dist => consumption_tax_dist, :labor_tax_dist => labor_tax_dist, :capital_tax_dist => capital_tax_dist,
+            :aggC => aggC, :aggK => aggK, :aggL => aggL, :aggG => aggG,
+            :aggT_c => aggT_c, :aggT_y => aggT_y, :aggT_k => aggT_k
         )
         
         for (name, mat) in items
@@ -163,18 +168,13 @@ for prl_i in eachindex(labor_prog)
     end
 end
 
+# Print session details 
+time_end = now()
+session_time = Dates.canonicalize(Dates.CompoundPeriod(Dates.DateTime(time_end) - Dates.DateTime(time_start)))
+timestamp_end = Dates.format(now(), "yyyymmdd-HH_MM_SS")
+
+print_simulation_details("./output/preliminary/model_results/session_end_$(timestamp_end).txt")
+
 @info("Solved all steady states!")
 
 #######################################################################################
-
-# Store the VFI guess 
-# SaveMatrix(V_new, "output/preliminary/V_guess_matrix_a" * "$gpar.N_a" * "_l" * "$gpar.N_l" * ".txt")
-# V_guess_read = ReadMatrix("output/preliminary/V_guess_matrix.txt")
-
-# Save the figure
-# savefig(pfa, "output/preliminary/asset_policy_len$gpar.N_a.png")
-
-# Save the figure
-# savefig(pfl, "output/preliminary/labor_policy_l$gpar.N_l" * "_a$gpar.N_a" * ".png")
-
-# TBM - capital taxation should act only if household is saving (not on borrowing)?

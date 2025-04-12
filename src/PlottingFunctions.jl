@@ -9,8 +9,7 @@
 
 using StatsBase
 using Plots
-using CairoMakie: Figure, Axis3, surface!, save, colormap, wireframe!, cgrad, Label
-# using CairoMakie: surface, Figure, Axis3 # Change here to GLMakie for interactive plots
+using CairoMakie # Switch to GLMakie for interactive plots
 using LaTeXStrings
 
 
@@ -23,7 +22,7 @@ using LaTeXStrings
 function plot_f(f; x_min=-1, x_max=1)
     cs = range(x_min, x_max, length=500)
     fs = [f(c) for c in cs]
-    plot(cs, fs, xlabel="c", ylabel="f(c)", title="Objective function", legend=false)
+    Plots.plot(cs, fs, xlabel="c", ylabel="f(c)", title="Objective function", legend=false)
     hline!([0], linestyle=:dash, color=:red) # Show where f(c) = 0
 end
 
@@ -44,7 +43,7 @@ function plot_utility_function(rra, phi, frisch; normalise = false, c_range = (0
     utility_matrix = utility_matrix'
 
     # Plot the utility function
-    p = plot(c_values, l_values, utility_matrix, st = :surface, xlabel = "Consumption (c)", ylabel = "Labor (l)", zlabel = "Utility", title = "Utility Function")
+    p = Plots.plot(c_values, l_values, utility_matrix, st = :surface, xlabel = "Consumption (c)", ylabel = "Labor (l)", zlabel = "Utility", title = "Utility Function")
 
     # Find the maximum utility value and its coordinates
     max_utility = maximum(utility_matrix)
@@ -80,13 +79,13 @@ function plot_utility_with_bc(rra, phi, frisch; a_i = 10, a_prime_i = 10, rho_i 
     utility_values = hh_utility[:, rho_i, a_i, a_prime_i]
 
     # Plot consumption and labor
-    p1 = plot(l_values, c_values, xlabel = "Labor (l)", ylabel = "Consumption (c)", title = "Consumption and Utility vs. Labor - Fixed ρ, a and a'", label = "Consumption")
+    p1 = Plots.plot(l_values, c_values, xlabel = "Labor (l)", ylabel = "Consumption (c)", title = "Consumption and Utility vs. Labor - Fixed ρ, a and a'", label = "Consumption")
 
     # Plot utility and labor
-    p2 = plot(l_values, utility_values, xlabel = "Labor (l)", ylabel = "Utility", label = "Utility", linecolor = :red)
+    p2 = Plots.plot(l_values, utility_values, xlabel = "Labor (l)", ylabel = "Utility", label = "Utility", linecolor = :red)
 
     # Combine plots
-    p = plot(p1, p2, layout = (2, 1), size = (800, 600))
+    p = Plots.plot(p1, p2, layout = (2, 1), size = (800, 600))
 
     # Find the maximum utility value and its coordinates
     max_utility = maximum(utility_values)
@@ -119,7 +118,7 @@ function plot_taxes_vs_base(base_vec, tax_vec; base_range=nothing)
         sample_indices = sample(1:length(base_vec), min(10000, length(base_vec)), replace=false)
 
         # Plot the full dataset
-        p = scatter(base_vec[sample_indices], tax_vec[sample_indices],
+        p = Plots.scatter(base_vec[sample_indices], tax_vec[sample_indices],
                     xlabel="Tax Base", ylabel="Tax",
                     title="Taxes vs Tax Base", legend=false, markercolor=:green)
     else
@@ -128,7 +127,7 @@ function plot_taxes_vs_base(base_vec, tax_vec; base_range=nothing)
         filter_indices = findall(x -> lower_bound < x < upper_bound, base_vec)
 
         # Plot the filtered dataset
-        p = scatter(base_vec[filter_indices], tax_vec[filter_indices],
+        p = Plots.scatter(base_vec[filter_indices], tax_vec[filter_indices],
                     xlabel="Tax Base", ylabel="Tax",
                     title="Taxes vs Tax Base \n Range-Adjusted", legend=false, markercolor=:red)
     end
@@ -136,9 +135,7 @@ function plot_taxes_vs_base(base_vec, tax_vec; base_range=nothing)
     # Add a horizontal line at tax = 0 for reference
     hline!(p, [0], linestyle=:dash, color=:black, lw=2, label="Tax = 0")
 
-    # Display the plot
-    display(p)
-
+    # Return the plot
     return p
 end
 
@@ -175,12 +172,12 @@ function plot_1D_itp_vs_data(itp, x_data, y_data; x_range=nothing, y_range=nothi
     idx = sample(1:length(x_subset), min(100, length(x_subset)), replace=false)
 
     # Plot the data points
-    p = plot(x_subset[idx], y_subset[idx],
+    p = Plots.plot(x_subset[idx], y_subset[idx],
          seriestype=:scatter, label="Data", legend=:topleft, framestyle=:box,
          xlabel="x", ylabel="y", title="Interpolation vs Data")
 
     # Plot the interpolation
-    plot!(p, xq, itp.(xq), label="Interpolation", linewidth=2)
+    Plots.plot!(p, xq, itp.(xq), label="Interpolation", linewidth=2)
 
     # Optionally adjust y-axis range
     if y_range !== nothing
@@ -233,14 +230,14 @@ function plot_2d_policy_int_vs_data(policy_matrix, policy_spline, a_grid, rho_gr
         policy_spline_values = [policy_spline(rho_val, a) for a in a_dense]
 
         # Initialize plot
-        p = plot(title="Interpolation vs. Data for ρ=$(round(rho_val, digits=2))", 
+        p = Plots.plot(title="Interpolation vs. Data for ρ=$(round(rho_val, digits=2))", 
                  xlabel="Assets (a)", ylabel=ylabel_text, legend=:bottomright)
 
         # Plot original data (discrete points)
-        scatter!(p, a_grid, policy_matrix[i_rho, :], label="Raw Data", markersize=6, color=:blue)
+        Plots.scatter!(p, a_grid, policy_matrix[i_rho, :], label="Raw Data", markersize=6, color=:blue)
 
         # Plot spline interpolation (smooth curve)
-        plot!(p, a_dense, policy_spline_values, label="Spline Interpolation", linewidth=2, color=:red)
+        Plots.plot!(p, a_dense, policy_spline_values, label="Spline Interpolation", linewidth=2, color=:red)
 
         # Display plot
         display(p)
@@ -292,8 +289,8 @@ function plot_opt_c_l_from_FOC(a_i, opt_c_itp, opt_l_itp, a_grid, rho_grid)
     """
 
     # Create plots for c*(a') and l*(a') as functions of a' for different ρ
-    p1 = plot(title="Optimal Consumption c*(a') for a = $(a_grid[a_i])", xlabel="a'", ylabel="c*", legend=:topright)
-    p2 = plot(title="Optimal Labor l*(a') for a = $(a_grid[a_i])", xlabel="a'", ylabel="l*", legend=:topleft)
+    p1 = Plots.plot(title="Optimal Consumption c*(a') for a = $(a_grid[a_i])", xlabel="a'", ylabel="c*", legend=:topright)
+    p2 = Plots.plot(title="Optimal Labor l*(a') for a = $(a_grid[a_i])", xlabel="a'", ylabel="l*", legend=:topleft)
 
     # Loop over productivity levels
     for rho_i in 1:length(rho_grid)
@@ -306,8 +303,8 @@ function plot_opt_c_l_from_FOC(a_i, opt_c_itp, opt_l_itp, a_grid, rho_grid)
         l_values = [interp_l(a_prime) for a_prime in a_grid]
 
         # Plot the interpolated policies
-        plot!(p1, a_grid, c_values, label="ρ = $(rho_grid[rho_i])")
-        plot!(p2, a_grid, l_values, label="ρ = $(rho_grid[rho_i])")
+        Plots.plot!(p1, a_grid, c_values, label="ρ = $(rho_grid[rho_i])")
+        Plots.plot!(p2, a_grid, l_values, label="ρ = $(rho_grid[rho_i])")
     end
 
     # Display the plots
@@ -343,19 +340,19 @@ function plot_value_function(V_new, a_grid, rho_grid; taxes=taxes)
     tax_subtitle = LaTeXString("\$$(tax_info)\$")
 
     # Title-only dummy plot (acts as suptitle)
-    suptitle = plot(title=main_title, grid=false, showaxis=false, bottom_margin=-35Plots.px)
+    suptitle = Plots.plot(title=main_title, grid=false, showaxis=false, bottom_margin=-35Plots.px)
 
     # Actual content plot
-    p = plot(title=tax_subtitle, xlabel="Assets (a)", ylabel="Value Function V(a, ρ)", legend=:bottomright)
+    p = Plots.plot(title=tax_subtitle, xlabel="Assets (a)", ylabel="Value Function V(a, ρ)", legend=:bottomright)
 
     for i_rho in 1:size(V_new, 1)
         itp = interpolate((a_grid,), V_new[i_rho, :], Gridded(Linear()))
         a_dense = range(minimum(a_grid), maximum(a_grid), length=200)
         V_interp = [itp(a) for a in a_dense]
-        plot!(p, a_dense, V_interp, label="ρ = $(rho_grid[i_rho])", lw=2)
+        Plots.plot!(p, a_dense, V_interp, label="ρ = $(rho_grid[i_rho])", lw=2)
     end
 
-    return plot(suptitle, p, layout = @layout([A{0.01h}; B]))
+    return Plots.plot(suptitle, p, layout = @layout([A{0.01h}; B]))
 end
 
 function plot_policy_function(policy_data, a_grid, rho_grid; policy_type="assets", taxes=taxes)
@@ -390,9 +387,9 @@ function plot_policy_function(policy_data, a_grid, rho_grid; policy_type="assets
     policy_title = title_text 
     tax_subtitle = LaTeXString("\$$(tax_info)\$")
 
-    suptitle = plot(title = policy_title, grid = false, showaxis = false, bottom_margin = -35Plots.px)
+    suptitle = Plots.plot(title = policy_title, grid = false, showaxis = false, bottom_margin = -35Plots.px)
     
-    p = plot(title = tax_subtitle, xlabel="Current Assets (a)", ylabel=ylabel_text, legend=leg_pos)
+    p = Plots.plot(title = tax_subtitle, xlabel="Current Assets (a)", ylabel=ylabel_text, legend=leg_pos)
 
     a_dense = range(minimum(a_grid), maximum(a_grid), length=200)
 
@@ -400,14 +397,14 @@ function plot_policy_function(policy_data, a_grid, rho_grid; policy_type="assets
         # Callable interpolants: Spline2D, clamped func, GriddedInterpolation
         for rho_val in rho_grid
             vals = [policy_data(rho_val, a) for a in a_dense]
-            plot!(p, a_dense, vals, label="ρ = $(round(rho_val, digits=4))", 
+            Plots.plot!(p, a_dense, vals, label="ρ = $(round(rho_val, digits=4))", 
                      lw=2, title = tax_subtitle)
         end
     
     elseif isa(policy_data, AbstractMatrix)
         # Raw matrix input
         for i_rho in 1:length(rho_grid)
-            plot!(p, a_grid, policy_data[i_rho, :], label="ρ = $(rho_grid[i_rho])", 
+            Plots.plot!(p, a_grid, policy_data[i_rho, :], label="ρ = $(rho_grid[i_rho])", 
                      lw=2, title = tax_subtitle)
         end
 
@@ -415,7 +412,7 @@ function plot_policy_function(policy_data, a_grid, rho_grid; policy_type="assets
         @error("Invalid input type for policy_data.")
     end
 
-    return plot(suptitle, p, layout = @layout([A{0.01h}; B]))
+    return Plots.plot(suptitle, p, layout = @layout([A{0.01h}; B]))
 end
 
 function plot_household_policies(valuef, policy_a_int, policy_l_int, policy_c,
@@ -524,11 +521,11 @@ function plot_policy_function_3d(policy_data, a_grid, rho_grid; policy_type="lab
     azimuth = -.25π,    # horizontal rotation (left-right)
     # elevation = 30    # vertical tilt
     )   
-    my_cmap = CairoMakie.cgrad(
-        [:deepskyblue, :deepskyblue, :lime, :yellow, :yellow],  # more blue/yellow anchors
-        [0.0, 0.2, 0.5, 0.8, 1.0],                # positions in [0,1]
-        categorical = false
-    )
+    # my_cmap = CairoMakie.cgrad(
+    #     [:deepskyblue, :deepskyblue, :lime, :yellow, :yellow],  # more blue/yellow anchors
+    #     [0.0, 0.2, 0.5, 0.8, 1.0],                # positions in [0,1]
+    #     categorical = false
+    # )
 
     my_cmap = ColorSchemes.turbo.colors        # bright and saturated
 
@@ -553,7 +550,7 @@ function plot_heatmap_stationary_distribution(stat_dist; taxes=taxes)
     tax_info = "λ_y=$(taxes.lambda_y), τ_y=$(taxes.tau_y), λ_c=$(taxes.lambda_c), τ_c=$(taxes.tau_c), τ_k=$(taxes.tau_k)"
 
     # Initialize plot
-    p = heatmap(stat_dist,
+    p = Plots.heatmap(stat_dist,
     title=LaTeXString("$title_text\n\$$(tax_info)\$\n"), 
     xlabel="Wealth (a)", ylabel="Productivity (ρ)",
     color = :heat,                # or :heat
@@ -568,7 +565,7 @@ end
 
 function plot_density_by_productivity(stat_dist, a_grid, gpar; rho_grid=nothing)
 
-    plt = plot(
+    plt = Plots.plot(
         xlabel = "Wealth (a)",
         ylabel = "Density",
         title = "Stationary distribution by productivity level",
@@ -578,13 +575,63 @@ function plot_density_by_productivity(stat_dist, a_grid, gpar; rho_grid=nothing)
 
     for i in 1:gpar.N_rho
         label = isnothing(rho_grid) ? "ρ = $i" : "ρ = $(round(rho_grid[i], digits=2))"
-        plot!(plt, a_grid, stat_dist[i, :], label = label)
+        Plots.plot!(plt, a_grid, stat_dist[i, :], label = label)
     end
 
     return plt
 end
 
 
+###############################################################################
+############# 6. PLOTTING AGGREGATES BY PROGRESSIVITY PARAMETERS ##############
+###############################################################################
 
+
+function plot_aggregate_surface(aggtoplot_vec, tau_c_vec, tau_y_vec;
+    xlabel="Consumption Tax Progressivity", 
+    ylabel="Labor Tax Progressivity",
+    # xlabel=LaTeXString("Consumption Tax Progressivity \$(\\tau_c)\$"), 
+    # ylabel=LaTeXString("Labor Tax Progressivity \$(\\tau_y)\$"), 
+    zlabel="Aggregate", title_text="3D Surface Plot",
+    cmap = :haline, wireframe = true,
+    azimuth = π/4, elevation = π/6)
+
+    # Get unique sorted values for the grid axes
+    tau_c_grid = sort(unique(tau_c_vec))
+    tau_y_grid = sort(unique(tau_y_vec))
+
+    # Create the grid (meshgrid)
+    C = repeat(tau_c_grid', length(tau_y_grid), 1)  # tau_c on x-axis
+    Y = repeat(tau_y_grid, 1, length(tau_c_grid))   # tau_y on y-axis
+
+    # Fill Z surface: reshape assuming data is ordered row-wise by tau_y, tau_c
+    Z = reshape(aggtoplot_vec, length(tau_y_grid), length(tau_c_grid))
+
+    # Plotting
+    fig = Figure(size=(800, 600))
+
+    # Title
+    CairoMakie.Label(
+        fig[1, 1, Top()], title_text;
+        fontsize = 20,
+        halign = :center,
+        padding = (0, 0, 10, 0))
+
+    ax = Axis3(fig[1, 1], xlabel=xlabel, ylabel=ylabel, zlabel=zlabel,
+               xlabelsize = 16, ylabelsize = 16, zlabelsize = 16,
+               xticklabelsize = 12, yticklabelsize = 12, zticklabelsize = 12,
+               azimuth = azimuth,    # horizontal rotation (left-right)
+               elevation = elevation # vertical tilt
+               )
+
+    CairoMakie.surface!(ax, C, Y, Z, 
+                        colormap=cmap, 
+                        shading = NoShading,
+                        colorrange=extrema(Z))
     
-    
+    if wireframe                    
+        CairoMakie.wireframe!(ax, C, Y, Z; color=:black, transparency=true)
+    end
+
+    return(fig)
+end    
