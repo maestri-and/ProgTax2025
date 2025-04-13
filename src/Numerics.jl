@@ -121,7 +121,7 @@ end
 
 # Function to extract stable distribution from transition matrix 
 
-function find_stable_dist(transition_matrix; max_iter = 5000)
+function find_stable_dist(transition_matrix; max_iter = 10000)
     # Extract dimensions of transition matrix to build new array
     stable_dist = ones(size(transition_matrix)[1])/size(transition_matrix)[1]
     temp = similar(stable_dist)
@@ -133,6 +133,7 @@ function find_stable_dist(transition_matrix; max_iter = 5000)
             # @info("Stable distribution: found solution after $iter iterations")
             return temp
         elseif iter == max_iter
+            error("No solution found after $iter iterations")
             @error("No solution found after $iter iterations")
         end
         stable_dist .= temp

@@ -644,3 +644,30 @@ display(pfl_int)
 #     gpar, hhpar, fpar, taxes,
 #     pi_rho, comp_params
 # )
+
+
+
+######## CHECKING GOODS MARKET CLEARING ######
+
+# # Check goods market clears
+# # C + I + G = Y
+# aggY = cd_production(fpar.tfp, fpar.alpha, aggK, aggL)
+# function cd_production(A, alpha, capital, labor)
+#     return A * labor ^ (1 - alpha) * capital ^ alpha
+# end
+# aggY = fpar.tfp * aggK ^ fpar.alpha * aggL ^ (1 - fpar.alpha)
+# aggI = fpar.delta * aggK        # Implied by low of motion of capital in steady state
+# abs(aggY - (aggC + aggI + aggG)) < 0.01
+
+# # Compute Y on the income side
+# aggLaborIncome = sum(policy_l .* stat_dist .* rho_grid .* w) 
+# aggCapitalReturns = sum(aggK .* (r + fpar.delta))
+
+# aggCapitalIncome = sum(stat_dist .* a_grid') * (1 - taxes.tau_k) * (r + fpar.delta)
+
+# aggY_is = aggLaborIncome + aggCapitalReturns
+# aggY_is = w * aggL + (r + fpar.delta) * aggK
+
+# # Check r and w
+# r - (fpar.alpha * fpar.tfp * (aggL / aggK)^ (1 - fpar.alpha) - fpar.delta)
+# w - (1 - fpar.alpha) * fpar.tfp * (aggK / aggL) ^ fpar.alpha

@@ -51,6 +51,7 @@ function makeGrid(xmin, xmax, n_values; grid_type = "uniform", cbsv_alpha = 1.0,
         return [(xmin + xmax)/2 + (xmax - xmin)/2 * sign(cos(π * (1 - i/(n_values - 1)))) * abs(cos(π * (1 - i/(n_values - 1))))^cbsv_alpha for i in 0:(n_values-1)]    
     else
         @error("Grid type not supported!")
+        error("Grid type not supported!")
     end
 end
 
@@ -65,17 +66,27 @@ end
 function print_simulation_details(filepath::String; 
                                   session_time = session_time,
                                   grid_parameters = gpar,
-                                  asset_grid_type = a_gtype)
+                                  asset_grid_type = a_gtype,
+                                  hhpar = hhpar,
+                                  fpar = fpar,
+                                  comp_params =comp_params
+                                  )
     # Write file
     open(filepath, "w") do file
         
-        # Write grid details   
+        # Write grid details  
+        write(file, "Asset grid type: $(a_gtype)" * "\n") 
         write(file, "Grid parameters: $(gpar)" * "\n")
-        write(file, "Asset grid type: $(a_gtype)" * "\n")
+
+        # Write parameters details
+        write(file, "Household parameters: $(hhpar)" * "\n")
+        write(file, "Firm parameters: $(fpar)" * "\n")
+        write(file, "Computational parameters: $(comp_params)" * "\n")
         
         # Write time details
         write(file, "Time spent: $(session_time)")
     end
+    return nothing
 end
 
 
@@ -103,12 +114,14 @@ function SaveMatrix(matrix, filepath::String; overwrite=false, write_parameters 
             write(file, "1" * "\n")
         else
             @error("Wrong argument type! Ensure your input is a matrix or a float!")
+            error("Wrong argument type! Ensure your input is a matrix or a float!")
         end
 
         # Write element
         writedlm(file, matrix, ',')
     end
     @info("Matrix saved in $filepath")
+    return nothing
 end
 
 # Importing matrix printed to .txt - DEPRECATED 
@@ -220,12 +233,17 @@ function get_model_results(folderpath::String; ignorefiles = ["placeholder.txt"]
 
     # Construct first dataframe
     df = read_results_from_txt(joinpath(folderpath,datafiles[1]))
+    # Remove duplicates
+    df = unique(df)
 
     # Iterate over files and merge
     for file in datafiles[2:end]
         try
             # Read
             temp = read_results_from_txt(joinpath(folderpath, file))
+
+            # Remove duplicates
+            temp = unique(temp)
 
             # Merge 
             df = outerjoin(df, temp, on = merging_keys)

@@ -219,6 +219,7 @@ function plot_2d_policy_int_vs_data(policy_matrix, policy_spline, a_grid, rho_gr
         ylabel_text = "Consumption (c)"
     else
         @error("Invalid policy_type. Choose 'assets', 'labor', or 'consumption'.")
+        error("Invalid policy_type. Choose 'assets', 'labor', or 'consumption'.")
     end
 
     # Loop over each productivity level ρ and create a plot
@@ -410,6 +411,7 @@ function plot_policy_function(policy_data, a_grid, rho_grid; policy_type="assets
 
     else
         @error("Invalid input type for policy_data.")
+        error("Invalid input type for policy_data.")
     end
 
     return Plots.plot(suptitle, p, layout = @layout([A{0.01h}; B]))

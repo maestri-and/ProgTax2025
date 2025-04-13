@@ -110,7 +110,8 @@ function compute_hh_taxes_consumption_utility_ME(a_grid, rho_grid, l_grid, gpar,
     hh_utility = similar(hh_consumption); # Pre-allocate
 
     # Compute household utility if consumption is positive
-    @threads for l in 1:gpar.N_l        @views hh_utility[l, :, :, :] .= ifelse.(hh_consumption[l, :, :, :] .> 0,
+    @threads for l in 1:gpar.N_l        
+        @views hh_utility[l, :, :, :] .= ifelse.(hh_consumption[l, :, :, :] .> 0,
                                                 get_utility_hh.(hh_consumption[l, :, :, :],
                                                 l_grid[l], hhpar), 
                                                 hh_consumption[l, :, :, :])
@@ -702,8 +703,8 @@ function SolveHouseholdProblem(a_grid, rho_grid, l_grid, gpar, w, r,
         if all(isfinite.(m))
             nothing 
         else 
-            @info("Issue with r=$r, w=$w, taxes=$(taxes)!")
-            @error("Non-finite values in value or policy functions! Check VFI!")
+            @error("Issue with r=$r, w=$w, taxes=$(taxes)! \n Non-finite values in value or policy functions! Check VFI!")
+            error("Non-finite values in value or policy functions! Check VFI!")
         end
     end
     
@@ -758,6 +759,7 @@ function stationary_distribution(a_grid, pi_rho, policy_a, gpar; tol=1e-9, max_i
     end
 
     @error("Stationary distribution did not converge")
+    error("Stationary distribution did not converge")
 
     return dist_new
 end
@@ -787,7 +789,7 @@ function ComputeEquilibrium_Bisection(
     w = opt_wage(r_mid)
 
     if collect_errors
-            #--- Store r points and K_@error(r) to study functional form
+            #--- Store r points and K_error(r) to study functional form
             rates = []
             errors = [] 
     end
@@ -818,11 +820,11 @@ function ComputeEquilibrium_Bisection(
 
         ###### 3. Aggregates ######
         asset_supply = sum(stat_dist * a_grid)  # asset by productivity
-        labor_supply = sum(stat_dist .* policy_l)
+        effective_labor_supply = sum(stat_dist .* policy_l .* rho_grid)
 
         ###### 4. Firm's Capital Demand from FOC ######
         asset_demand = ((fpar.alpha * fpar.tfp) / (r_mid + fpar.delta)) ^
-                       (1 / (1 - fpar.alpha)) * labor_supply
+                       (1 / (1 - fpar.alpha)) * effective_labor_supply
 
         ###### 5. Check for Market Clearing ######
         K_error = asset_demand - asset_supply
@@ -830,7 +832,7 @@ function ComputeEquilibrium_Bisection(
         @info("Iter $iter: r = $(round(r_mid, digits=5)), w = $(round(w, digits=5)), K_supply = $(round(asset_supply, digits=5)), K_demand = $(round(asset_demand, digits=5)), error = $(round(K_error, digits=5))")
     
         if collect_errors
-            #--- Store r points and K_@error(r) to study functional form
+            #--- Store r points and K_error(r) to study functional form
             push!(rates, r_mid)
             push!(errors, K_error) 
         end
@@ -857,6 +859,7 @@ function ComputeEquilibrium_Bisection(
     end
 
     @error("❌ Equilibrium not found within max iterations.")
+    error("❌ Equilibrium not found within max iterations.")
 end
 
 function ComputeEquilibrium_Newton(
@@ -901,11 +904,11 @@ function ComputeEquilibrium_Newton(
 
         ###### 3. Aggregates ######
         asset_supply = sum(stat_dist * a_grid)
-        labor_supply = sum(stat_dist .* policy_l)
+        effective_labor_supply = sum(stat_dist .* policy_l .* rho_grid)
 
         ###### 4. Firm's Capital Demand ######
         asset_demand = ((fpar.alpha * fpar.tfp) / (r_mid + fpar.delta)) ^
-                       (1 / (1 - fpar.alpha)) * labor_supply
+                       (1 / (1 - fpar.alpha)) * effective_labor_supply
 
         ###### 5. Market Clearing Error ######
         K_error = asset_demand - asset_supply
@@ -943,9 +946,9 @@ function ComputeEquilibrium_Newton(
         )
 
         asset_supply_up = sum(stat_dist_up * a_grid)
-        labor_supply_up = sum(stat_dist_up .* policy_l_up)
+        effective_labor_supply_up = sum(stat_dist_up .* policy_l_up .* rho_grid)
         asset_demand_up = ((fpar.alpha * fpar.tfp) / (r_up + fpar.delta)) ^
-                          (1 / (1 - fpar.alpha)) * labor_supply_up
+                          (1 / (1 - fpar.alpha)) * effective_labor_supply_up
         K_error_up = asset_demand_up - asset_supply_up
 
         K_derivative = (K_error_up - K_error) / dr
@@ -965,6 +968,7 @@ function ComputeEquilibrium_Newton(
     end
 
     @error("❌ Equilibrium not found within max iterations.")
+    error("❌ Equilibrium not found within max iterations.")
 end
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
@@ -973,50 +977,71 @@ end
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
-function compute_aggregates(stat_dist, policy_a, policy_c, policy_l, rho_grid, a_grid, w, r, taxes; raise_bc_error = true)
+function compute_aggregates_and_check(stat_dist, policy_a, policy_c, policy_l, rho_grid, a_grid, w, r, taxes; 
+                                      raise_bc_error = true, raise_clearing_error = true)
+    ###### 1. Compute aggregates ######
     # Consumption 
-    consumption_dist = stat_dist .* policy_c
+    distC = stat_dist .* policy_c
     aggC = sum(stat_dist .* policy_c)
 
     # Capital
-    capital_dist = policy_a .* stat_dist
-    aggK = sum(capital_dist)
+    distK = policy_a .* stat_dist
+    aggK = sum(distK)
 
     # Labor
-    labor_dist = policy_l .* stat_dist
-    aggL = sum(labor_dist)
+    distH = policy_l .* stat_dist
+    aggH = sum(distH)
+
+    # Effective labor
+    distL = distH .* rho_grid
+    aggL = sum(distL)
+
+    # Aggregate output
+    aggY = cd_production(fpar.tfp, fpar.alpha, aggK, aggL)
 
     # Consumption Tax
     consumption_tax_policy = policy_c .- taxes.lambda_c .* policy_c .^ (1 - taxes.tau_c) 
-    consumption_tax_dist = stat_dist .* consumption_tax_policy 
-    aggT_c = sum(consumption_tax_dist)              # Net consumption tax revenue, after redistribution if any
+    distCtax = stat_dist .* consumption_tax_policy 
+    aggT_c = sum(distCtax)              # Net consumption tax revenue, after redistribution if any
 
     # Labor Tax
     gross_labor_income = policy_l .* rho_grid .* w    # diag(ρ_grid)*policy_l*w
     labor_tax_policy = gross_labor_income .- taxes.lambda_y .* gross_labor_income .^ (1 - taxes.tau_y)
-    labor_tax_dist = stat_dist .* labor_tax_policy
-    aggT_y = sum(labor_tax_dist)                    # Net labor tax revenue, after redistribution if any
+    distWtax = stat_dist .* labor_tax_policy
+    aggT_y = sum(distWtax)                    # Net labor tax revenue, after redistribution if any
 
     # Capital Tax
-    capital_tax_dist = (taxes.tau_k * r) .* a_grid
-    aggT_k = sum(stat_dist * capital_tax_dist)
+    distKtax = (taxes.tau_k * r) .* a_grid
+    aggT_k = sum(stat_dist * distKtax)
 
     # Government expenditure
     aggG = aggT_y + aggT_c + aggT_k
 
+    ###### 2. Check market clearing and budget constraint ######
+
+    # Doublecheck goods' market clearing
+    # Y = C + I + G
+    excess_prod = aggY - (aggC + fpar.delta * aggK + aggG)
+    if abs(excess_prod) > 0.01 && raise_clearing_error
+        @error("Market for goods did not clear!")
+        error("Market for goods did not clear!")
+    elseif abs(excess_prod) > 0.01 && !raise_clearing_error
+        @warn("Large residual for the goods' market ($excess_prod)! Doublecheck accuracy!")
+    end
+
     # Doublecheck budget constraint holding for optimal policies - Get max discrepancy
     bc_max_discrepancy = findmax(abs.(policy_c .+ consumption_tax_policy .- (gross_labor_income .- labor_tax_policy .+ ((1 + (1 - taxes.tau_k)r) .* (ones(7, 1) * a_grid')) .- policy_a)))
     if bc_max_discrepancy[1] > 0.01 && raise_bc_error
-        @error("Max discrepancy is larger than 0.01! Doublecheck accuracy! $bc_max_discrepancy")
+        @error("Max budget constraint discrepancy is larger than 0.01! Doublecheck accuracy! $bc_max_discrepancy")
+        error("Max budget constraint discrepancy is larger than 0.01! Doublecheck accuracy! $bc_max_discrepancy")
     elseif bc_max_discrepancy[1] > 0.01 && !raise_bc_error
-        @warn("Max discrepancy is larger than 0.01! Doublecheck accuracy! $bc_max_discrepancy")
+        @warn("Max budget constraint discrepancy is larger than 0.01! Doublecheck accuracy! $bc_max_discrepancy")
     end
 
-
-    return(consumption_dist, capital_dist, labor_dist,
-           consumption_tax_dist, labor_tax_dist, capital_tax_dist, 
-           aggC, aggK, aggL, aggG,
+    return(distC, distK, distH, distL,
+           distCtax, distWtax, distKtax, 
+           aggC, aggK, aggH, aggL, aggG,
            aggT_c, aggT_y, aggT_k, 
-           bc_max_discrepancy)
+           excess_prod, bc_max_discrepancy)
 end
 

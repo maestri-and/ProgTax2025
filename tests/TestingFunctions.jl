@@ -77,6 +77,10 @@ function test_budget_constraint()
               "Income: $rand_income\n" *
               "Taxes: $rand_taxes\n" *
               "Expenditure: $rand_expenditure")
+        error("Test failed! Budget constraint does not hold.\n" *
+              "Income: $rand_income\n" *
+              "Taxes: $rand_taxes\n" *
+              "Expenditure: $rand_expenditure")
     end
 
 end
@@ -139,6 +143,10 @@ function test_optimal_budget_constraint()
                 "Income: $rand_income\n" *
                 "Taxes: $rand_taxes\n" *
                 "Expenditure: $rand_expenditure")
+        error("Test failed! Budget constraint does not hold.\n" *
+                "Income: $rand_income\n" *
+                "Taxes: $rand_taxes\n" *
+                "Expenditure: $rand_expenditure")
     end
 end
 
@@ -194,6 +202,10 @@ function test_optimal_budget_constraint()
         @info("Test passed!")
     else 
         @error("Test failed! Budget constraint does not hold.\n" *
+                "Income: $rand_income\n" *
+                "Taxes: $rand_taxes\n" *
+                "Expenditure: $rand_expenditure")
+        error("Test failed! Budget constraint does not hold.\n" *
                 "Income: $rand_income\n" *
                 "Taxes: $rand_taxes\n" *
                 "Expenditure: $rand_expenditure")

@@ -29,6 +29,7 @@ using Dates
 
 include("AuxiliaryFunctions.jl")
 include("PlottingFunctions.jl")
+include("Parameters.jl")
 
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
@@ -43,13 +44,39 @@ ss = get_model_results(folderpath)
 
 # Compute variables
 # Government expenditure
-ss[:, "G"] = ss.aggT_c .+ ss.aggT_y .+ ss.aggT_k
+ss[:, "aggG"] = ss.aggT_c .+ ss.aggT_y .+ ss.aggT_k
 
 # Aggregate capital 
 ss.aggK .= 0.0
 for i in 1:nrow(ss)
     ss.aggK[i] = sum(ss.policy_a[i] .* ss.stat_dist[i])
 end
+
+# Aggregate labor 
+ss.aggH .= 0.0
+for i in 1:nrow(ss)
+    ss.aggH[i] = sum(ss.policy_l[i] .* ss.stat_dist[i])
+end
+
+# Aggregate output
+# Production side 
+ss.aggY = fpar.tfp .* ss.aggL .^ (1 - fpar.alpha) .* ss.aggK .^ fpar.alpha
+# Income side
+ss.aggLaborIncome .= 0.0
+for i in 1:nrow(ss)
+    ss.aggLaborIncome[i] = sum(ss.w[i] .* rho_grid .* policy_l[i])
+end
+ss.aggY_is = ss.aggLaborIncome .+ ss.r .* ss.aggK
+
+# Investment 
+ss.aggI = fpar.delta .* ss.aggK
+
+# Goods market clearing 
+ss.GMerror = ss.aggY .- ss.aggC .- ss.aggI - ss.aggG
+ss.GMerror_frac = ss.GMerror ./ ss.aggY
+
+aggregates = select(ss, names(ss)[1:5]..., "aggK", "aggL", "aggC", "aggI", "aggG", "aggY", "GMerror", "GMerror_frac")
+
 
 # Gini 
 

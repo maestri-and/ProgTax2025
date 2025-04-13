@@ -76,11 +76,11 @@ taxes = Taxes(0.7, 0.2, # lambda_y, tau_y,
             0.26 # tau_k
             )
 
-# # Taxation parameters - no taxes            
-# taxes = Taxes(1.0, 0.0, # lambda_y, tau_y, 
-# 1.0, 0.0, #lambda_c, tau_c,
-# 0.0 # tau_k
-# )
+# Taxation parameters - no taxes            
+taxes = Taxes(1.0, 0.0, # lambda_y, tau_y, 
+1.0, 0.0, #lambda_c, tau_c,
+0.0 # tau_k
+)
 
 # Taxation parameters - Regressive taxes            
 # taxes = Taxes(0.7, -0.1, # lambda_y, tau_y, 
@@ -124,18 +124,13 @@ for prl_i in eachindex(labor_prog)
         # plot_density_by_productivity(stat_dist, a_grid, gpar; rho_grid=nothing)
 
         # Compute other useful distributions and aggregates
-        consumption_dist, capital_dist, labor_dist,
-        consumption_tax_dist, labor_tax_dist, capital_tax_dist, 
-        aggC, aggK, aggL, aggG,
-        aggT_c, aggT_y, aggT_k, bc_max_discrepancy = compute_aggregates(stat_dist, policy_a, policy_c, 
+        distC, distK, distH, distL,
+        distCtax, distWtax, distKtax, 
+        aggC, aggK, aggH, aggL, aggG,
+        aggT_c, aggT_y, aggT_k, 
+        excess_prod, bc_max_discrepancy = compute_aggregates_and_check(stat_dist, policy_a, policy_c, 
                                                                             policy_l, rho_grid, a_grid, w, r, taxes;
-                                                                            raise_bc_error = false);
-
-        # Check goods market clears
-        # C + I + G = Y
-        # aggY = cd_production(fpar.tfp, fpar.alpha, aggK, aggL)
-        # aggI = fpar.delta * aggK        # Implied by low of motion of capital in steady state
-        # abs(aggC + aggI + aggG - aggY) < 0.01
+                                                                            raise_bc_error = false, raise_clearing_error = false);        
 
         # Plot rates vs errors
         # Plots.scatter(rates, errors, xlabel = "Interest rate", ylabel = "Capital market error")
@@ -155,10 +150,11 @@ for prl_i in eachindex(labor_prog)
         # Save to file equilibrium details 
         items = Dict(:r => r, :w => w, :stat_dist => stat_dist,
             :policy_a => policy_a, :policy_l => policy_l, :policy_c => policy_c,
-            :consumption_dist => consumption_dist, :capital_dist => capital_dist, :labor_dist => labor_dist,
-            :consumption_tax_dist => consumption_tax_dist, :labor_tax_dist => labor_tax_dist, :capital_tax_dist => capital_tax_dist,
-            :aggC => aggC, :aggK => aggK, :aggL => aggL, :aggG => aggG,
-            :aggT_c => aggT_c, :aggT_y => aggT_y, :aggT_k => aggT_k
+            :distC => distC, :distK => distK, :distH => distH, :distL => distL,
+            :distCtax => distCtax, :distWtax => distWtax, :distKtax => distKtax,
+            :aggC => aggC, :aggK => aggK, :aggH => aggH, :aggL => aggL, :aggG => aggG,
+            :aggT_c => aggT_c, :aggT_y => aggT_y, :aggT_k => aggT_k,
+            :excess_prod => excess_prod, :bc_max_discrepancy => bc_max_discrepancy[1]
         )
         
         for (name, mat) in items
