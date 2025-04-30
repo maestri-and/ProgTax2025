@@ -529,10 +529,9 @@ function plot_policy_function_3d(policy_data, a_grid, rho_grid; policy_type="lab
     #     categorical = false
     # )
 
-    my_cmap = ColorSchemes.turbo.colors        # bright and saturated
-
-
-    CairoMakie.surface!(ax, A, R, Z, colormap = my_cmap,
+    CairoMakie.surface!(ax, A, R, Z, 
+                        colormap = :turbo,
+                        shading = NoShading,
                         transparency = false,
                         colorrange = extrema(Z))
 
@@ -543,7 +542,9 @@ function plot_policy_function_3d(policy_data, a_grid, rho_grid; policy_type="lab
 end
 
 ###############################################################################
+###############################################################################
 ##################### 5. PLOTTING AGGREGATE DISTRIBUTIONS #####################
+###############################################################################
 ###############################################################################
 
 function plot_heatmap_stationary_distribution(stat_dist; taxes=taxes)
@@ -583,6 +584,75 @@ function plot_density_by_productivity(stat_dist, a_grid, gpar; rho_grid=nothing)
     return plt
 end
 
+function plot_wealth_dist_bar(stats::Vector; title_str::String = "Wealth Distribution", show_labels::Bool = true)
+    """
+    plot_wealth_dist_bar(stats::Vector{Tuple}; title_str="Wealth Distribution", show_labels=true)
+
+    Plots a bar chart from a vector of tuples of the form:
+      (quantile_ref, share, _) where:
+      - `quantile_ref` is a Float or Tuple (e.g., 0.5, -0.1, (0.3, 0.7))
+      - `share` is the share of wealth held (e.g., 0.25 for 25%)
+      - the third element is ignored
+
+    Negative values in `quantile_ref` are treated as "Top x%" (e.g., -0.1 → Top 10%)
+    Positive values are treated as "Bottom x%" or "Middle x–y%" ranges.
+
+    Options:
+      - `show_labels=true`: display rounded percentage labels on top of bars
+    """
+
+    labels = String[]
+    shares = Float64[]
+
+    # Parse input
+    for (ref, share, _) in stats
+        label = ref isa Tuple ? 
+            "Middle $(Int(ref[1]*100))-$(Int(ref[2]*100))%" :
+            (ref < 0 ? "Top $(Int(-ref*100))%" : "Bottom $(Int(ref*100))%")
+        push!(labels, label)
+        push!(shares, share * 100)
+    end
+
+    fig = CairoMakie.Figure(size = (800, 400))
+    ax = CairoMakie.Axis(fig[1, 1]; title=title_str, xlabel="Group", ylabel="Wealth Share (%)",
+                         xticks=(1:length(labels), labels))
+
+    # Plot bars
+    CairoMakie.barplot!(ax, 1:length(shares), shares; color=:limegreen, width=0.6)
+
+    # Add labels
+    if show_labels
+        for (i, y) in enumerate(shares)
+            CairoMakie.text!(ax, i, y + 2, text="$(round(y, digits=1))%", align=(:center, :bottom), fontsize=14)
+        end
+    end
+
+    return fig
+end
+
+function plot_model_vs_data(data::Vector{<:Real}, model::Vector{<:Real}, labels::Vector{<:AbstractString};
+    title_str::String = "Model vs Data", ylabel_str::String = "Percentage",
+    barcolor = :limegreen)
+@assert length(data) == length(model) == length(labels) "Vectors must be the same length"
+
+fig = CairoMakie.Figure(size = (800, 400))
+ax = CairoMakie.Axis(fig[1, 1], title=title_str, xlabel="Group", ylabel=ylabel_str,
+ xticks=(1:length(labels), labels))
+
+# Bar plot for data
+CairoMakie.barplot!(ax, 1:length(data), data; color=barcolor, width=0.6, transparency=true)
+
+# Dot markers for model results
+CairoMakie.scatter!(ax, 1:length(model), model; color=:black, markersize=10)
+
+# Legend
+CairoMakie.axislegend(ax,
+    [CairoMakie.PolyElement(color=barcolor), CairoMakie.MarkerElement(marker=:circle, color=:black)],
+    ["Data", "Model"]
+)
+
+return fig
+end
 
 ###############################################################################
 ############# 6. PLOTTING AGGREGATES BY PROGRESSIVITY PARAMETERS ##############

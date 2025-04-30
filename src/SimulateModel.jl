@@ -1,8 +1,8 @@
 ###############################################################################
-############################## MODEL_SOLUTION.JL ##############################
+############################## SIMULATEMODEL.JL ###############################
 
-############################# This script solves ##############################
-###################### the benchmark ProgTax(2025) model ######################
+########### This script simulates the benchmark ProgTax(2025) model ###########
+############# to find multiple equilibria and stores the results ##############
 
 ###############################################################################
 
@@ -23,14 +23,14 @@ using Plots
 using BenchmarkTools
 using Dates
 using Infiltrator
+using QuantEcon
 # using CairoMakie: surface, Figure, Axis3
 
 
 include("Parameters.jl")
-include("FirmsGov.jl")
 include("AuxiliaryFunctions.jl")
 include("Numerics.jl")
-include("Households.jl")
+include("HouseholdsFirmsGov.jl")
 include("Interpolants.jl")
 include("SolvingFunctions.jl")
 include("PlottingFunctions.jl")
@@ -57,6 +57,12 @@ timestamp_start = Dates.format(now(), "yyyymmdd-HH_MM_SS")
 
 @info("Making grids...")
 
+# Define grid parameters
+gpar = GridParams(a_min, 200.000, 100, # Assets
+                    0.0, 1, 50,    # Labor
+                    length(rho_grid) # Productivity 
+                    )
+
 # Assets
 a_gtype = "polynomial"
 a_grid = makeGrid(gpar.a_min, gpar.a_max, gpar.N_a; grid_type = a_gtype, pol_power = 3)
@@ -65,16 +71,16 @@ a_grid = makeGrid(gpar.a_min, gpar.a_max, gpar.N_a; grid_type = a_gtype, pol_pow
 # Labor
 l_grid = makeGrid(gpar.l_min, gpar.l_max, gpar.N_l)
 
-# Labor productivity - Defined in model_parameters.jl
+# Labor productivity - Defined in Parameters.jl
 # rho_grid = rho_grid
 # Extract stable distribution from transition matrix
 rho_dist = find_stable_dist(pi_rho)
 
 # Taxation parameters - baseline calibration
-taxes = Taxes(0.7, 0.2, # lambda_y, tau_y, 
-            0.7, 0.136, #lambda_c, tau_c,
-            0.26 # tau_k
-            )
+# taxes = Taxes(0.7, 0.2, # lambda_y, tau_y, 
+#             0.7, 0.136, #lambda_c, tau_c,
+#             0.3 # tau_k
+#             )
 
 # Taxation parameters - no taxes            
 taxes = Taxes(1.0, 0.0, # lambda_y, tau_y, 
@@ -82,10 +88,10 @@ taxes = Taxes(1.0, 0.0, # lambda_y, tau_y,
 0.0 # tau_k
 )
 
-# Taxation parameters - Regressive taxes            
-# taxes = Taxes(0.7, -0.1, # lambda_y, tau_y, 
-# 0.8, -0.1, #lambda_c, tau_c,
-# 0.2 # tau_k
+# # Taxation parameters - Custom taxes            
+# taxes = Taxes(0.7, 0.475, # lambda_y, tau_y, 
+# 0.7, 0.475, #lambda_c, tau_c,
+# 0.3 # tau_k
 # )
 
 # Taxes' progressivity parameters
@@ -117,7 +123,8 @@ for prl_i in eachindex(labor_prog)
         r, w, stat_dist, valuef, policy_a, policy_l, policy_c, 
         rates, errors = ComputeEquilibrium_Newton(a_grid, rho_grid, l_grid, 
                                             gpar, hhpar, fpar, taxes,
-                                            pi_rho, comp_params)
+                                            pi_rho, comp_params; 
+                                            prevent_Newton_jump = false)
 
         # Plot stationary distribution 
         # plot_heatmap_stationary_distribution(stat_dist; taxes=taxes)
@@ -126,7 +133,7 @@ for prl_i in eachindex(labor_prog)
         # Compute other useful distributions and aggregates
         distC, distK, distH, distL,
         distCtax, distWtax, distKtax, 
-        aggC, aggK, aggH, aggL, aggG,
+        aggC, aggK, aggH, aggL, aggG, aggY,
         aggT_c, aggT_y, aggT_k, 
         excess_prod, bc_max_discrepancy = compute_aggregates_and_check(stat_dist, policy_a, policy_c, 
                                                                             policy_l, rho_grid, a_grid, w, r, taxes;
@@ -152,7 +159,7 @@ for prl_i in eachindex(labor_prog)
             :policy_a => policy_a, :policy_l => policy_l, :policy_c => policy_c,
             :distC => distC, :distK => distK, :distH => distH, :distL => distL,
             :distCtax => distCtax, :distWtax => distWtax, :distKtax => distKtax,
-            :aggC => aggC, :aggK => aggK, :aggH => aggH, :aggL => aggL, :aggG => aggG,
+            :aggC => aggC, :aggK => aggK, :aggH => aggH, :aggL => aggL, :aggG => aggG, :aggY => aggY,
             :aggT_c => aggT_c, :aggT_y => aggT_y, :aggT_k => aggT_k,
             :excess_prod => excess_prod, :bc_max_discrepancy => bc_max_discrepancy[1]
         )

@@ -22,7 +22,7 @@ using Optim
 
 include("Parameters.jl")
 include("Numerics.jl")
-include("Households.jl")
+include("HouseholdsFirmsGov.jl")
 include("AuxiliaryFunctions.jl")
 include("Interpolants.jl")
 
@@ -718,7 +718,7 @@ end
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
-function stationary_distribution(a_grid, pi_rho, policy_a, gpar; tol=1e-9, max_iter=10000)    
+function stationary_distribution(a_grid, pi_rho, policy_a, gpar; tol=1e-9, max_iter=100_000)    
     # Initial guess: uniform distribution
     dist = fill(1.0 / (gpar.N_a * gpar.N_rho), gpar.N_rho, gpar.N_a)
     dist_new = similar(dist)
@@ -784,9 +784,7 @@ function ComputeEquilibrium_Bisection(
     bw = bisection_weight  # Weight for dampened update of r
 
     #--- Wage implied by firm's FOC given r
-    opt_wage(r) = (1 - fpar.alpha) * fpar.tfp *
-                  ((fpar.alpha * fpar.tfp / (r + fpar.delta)) ^ (fpar.alpha / (1 - fpar.alpha)))
-    w = opt_wage(r_mid)
+    w = cd_implied_opt_wage(r_mid)
 
     if collect_errors
             #--- Store r points and K_error(r) to study functional form
@@ -815,7 +813,7 @@ function ComputeEquilibrium_Bisection(
         ###### 2. Stationary Distribution ######
         stat_dist = stationary_distribution(
             a_grid, pi_rho, policy_a, gpar;
-            tol = 1e-10, max_iter = 10_000
+            tol = 1e-10, max_iter = 100_000
         )
 
         ###### 3. Aggregates ######
@@ -855,7 +853,7 @@ function ComputeEquilibrium_Bisection(
 
         r_new = bw * r_mid + (1 - bw) * ((r_low + r_high) / 2)
         r_mid = r_new
-        w = opt_wage(r_mid)
+        w = cd_implied_opt_wage(r_mid)
     end
 
     @error("❌ Equilibrium not found within max iterations.")
@@ -865,16 +863,15 @@ end
 function ComputeEquilibrium_Newton(
     a_grid, rho_grid, l_grid,
     gpar, hhpar, fpar, taxes,
-    pi_rho, comp_params; collect_errors = true, damping_weight = 0
+    pi_rho, comp_params; collect_errors = true, damping_weight = 1,
+    prevent_Newton_jump = true
 )
     #--- Initial guess for interest rate
     r_mid = 0.025
     bw = damping_weight  # Damping parameter
 
     #--- Wage implied by firm's FOC given r
-    opt_wage(r) = (1 - fpar.alpha) * fpar.tfp *
-                  ((fpar.alpha * fpar.tfp / (r + fpar.delta)) ^ (fpar.alpha / (1 - fpar.alpha)))
-    w = opt_wage(r_mid)
+    w = cd_implied_opt_wage(r_mid)
 
     if collect_errors
         rates = []
@@ -899,7 +896,7 @@ function ComputeEquilibrium_Newton(
         ###### 2. Stationary Distribution ######
         stat_dist = stationary_distribution(
             a_grid, pi_rho, policy_a, gpar;
-            tol = 1e-10, max_iter = 10_000
+            tol = 1e-10, max_iter = 100_000
         )
 
         ###### 3. Aggregates ######
@@ -932,7 +929,7 @@ function ComputeEquilibrium_Newton(
         ###### 6. Finite Difference Derivative ######
         dr = 1e-5
         r_up = r_mid + dr
-        w_up = opt_wage(r_up)
+        w_up = cd_implied_opt_wage(r_up)
 
         (_, _, _, _, _, _, policy_a_up, policy_l_up, _) = SolveHouseholdProblem(
             a_grid, rho_grid, l_grid, gpar, w_up, r_up, taxes,
@@ -942,7 +939,7 @@ function ComputeEquilibrium_Newton(
 
         stat_dist_up = stationary_distribution(
             a_grid, pi_rho, policy_a_up, gpar;
-            tol = 1e-10, max_iter = 10_000
+            tol = 1e-10, max_iter = 100_000
         )
 
         asset_supply_up = sum(stat_dist_up * a_grid)
@@ -962,8 +959,14 @@ function ComputeEquilibrium_Newton(
         end
 
         # Damping for stability
-        r_mid = bw * r_mid + (1 - bw) * r_new
-        w = opt_wage(r_mid)
+        r_mid = (1 - bw) * r_mid + bw * r_new
+
+        # Enforce reasonable r range - TBM 
+        if prevent_Newton_jump
+            r_mid = clamp(r_new, 0.00001, 0.06)
+        end
+        
+        w = cd_implied_opt_wage(r_mid)
 
     end
 
@@ -1040,7 +1043,7 @@ function compute_aggregates_and_check(stat_dist, policy_a, policy_c, policy_l, r
 
     return(distC, distK, distH, distL,
            distCtax, distWtax, distKtax, 
-           aggC, aggK, aggH, aggL, aggG,
+           aggC, aggK, aggH, aggL, aggG, aggY, 
            aggT_c, aggT_y, aggT_k, 
            excess_prod, bc_max_discrepancy)
 end

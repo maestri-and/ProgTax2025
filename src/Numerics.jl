@@ -8,6 +8,14 @@
 
 using LinearAlgebra
 using Roots
+using Interpolations
+using CairoMakie
+
+###############################################################################
+###############################################################################
+############################### 1. ROOT FINDING ###############################
+###############################################################################
+###############################################################################
 
 
 # Solving non-linear equation for consumption given by Feldstein tax specification
@@ -119,6 +127,13 @@ function robust_root_FOC(f, lower::Float64, upper::Float64; secant_guess=1.0)
 end
 
 
+###############################################################################
+###############################################################################
+########################### 2. STATIONARY MATRICES ############################
+###############################################################################
+###############################################################################
+
+
 # Function to extract stable distribution from transition matrix 
 
 function find_stable_dist(transition_matrix; max_iter = 10000)
@@ -139,4 +154,114 @@ function find_stable_dist(transition_matrix; max_iter = 10000)
         stable_dist .= temp
     end
 end
+
+
+###############################################################################
+###############################################################################
+############################# 3. EFFECTIVE TAXES ##############################
+###############################################################################
+###############################################################################
+
+
+"""
+    compute_effective_tax(brackets::Vector{Tuple{Tuple{Float64, Float64}, Float64}};
+                          output::Symbol = :rate,
+                          plot::Bool = false,
+                          max_income::Float64 = 100_000,
+                          step::Float64 = 100.0)
+
+Compute the effective tax rate or total tax amount for a given progressive tax schedule.
+
+# Arguments
+- `brackets`: A vector of tuples, each containing:
+    - A tuple `(lower_bound, upper_bound)` representing the income range (upper bound exclusive).
+    - A `rate` representing the tax rate for that range.
+
+# Keyword Arguments
+- `output`: Symbol indicating the desired output:
+    - `:rate` for effective tax rate.
+    - `:taxes` for total tax amount.
+- `plot`: Boolean indicating whether to display a plot.
+- `max_income`: Maximum income level to consider (default: 100,000).
+- `step`: Step size for income levels (default: 100.0).
+
+# Returns
+- An interpolation function mapping income to effective tax rate or total tax amount.
+"""
+
+function compute_effective_tax(brackets::Vector{Tuple{Tuple{Float64, Float64}, Float64}};
+                               output::Symbol = :rate,
+                               plot::Bool = false,
+                               max_income::Float64 = 300000.00,
+                               steps::Float64 = 1000.0,
+                               graph_title = "Tax Schedule")   
+
+    # Generate income levels
+    incomes = 0.0:steps:max_income
+    taxes = zeros(length(incomes))
+
+    # Compute taxes for each income level
+    for (i, income) in enumerate(incomes)
+        tax = 0.0
+        for ((lower, upper), rate) in brackets
+            if income > lower
+                taxable_income = min(income, upper) - lower
+                tax += taxable_income * rate
+            end
+        end
+        taxes[i] = tax
+    end
+
+    # Determine output
+    if output == :rate
+        effective_values = taxes ./ incomes
+        effective_values[1] = 0.0  # Handle division by zero at income = 0
+        ylabel = "Effective Tax Rate"
+    elseif output == :taxes
+        effective_values = taxes
+        ylabel = "Total Tax Amount"
+    else
+        error("Invalid output type. Use :rate or :taxes.")
+    end
+
+    # Create interpolation function
+    interp_func = LinearInterpolation(collect(incomes), effective_values, extrapolation_bc=Line())
+
+    # Plot if requested
+    if plot
+        fig = CairoMakie.Figure(size = (800, 500))
+        ax = CairoMakie.Axis(fig[1, 1], 
+                             xlabel = "Gross Income", 
+                             ylabel = ylabel, 
+                             title = graph_title,
+                             xtickformat = x -> string.(Int.(round.(x))),
+                             ytickformat = y -> string.(round.(y; digits=2)))
+        CairoMakie.lines!(ax, incomes, effective_values, color = :blue)
+        display(fig)
+    end
+
+    return interp_func
+end
+
+
+###############################################################################
+###############################################################################
+############################### 4. CALIBRATION ################################
+###############################################################################
+###############################################################################
+
+#-#-#-#-#-#-# Calibrating Feldstein function to target tax curve #-#-#-#-#-#-#
+
+function minimise_tax_curve_distance(target_curve, functional_form;
+                                     targeting_range)
+    # Fit functional form to target curve by minimising sum of squared distances
+end
+
+
+
+
+
+
+
+
 

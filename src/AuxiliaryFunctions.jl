@@ -49,6 +49,9 @@ function makeGrid(xmin, xmax, n_values; grid_type = "uniform", cbsv_alpha = 1.0,
         return [xmin + (xmax - xmin) * g^pol_power for g in unif_grid]
     elseif grid_type == "chebyshev"
         return [(xmin + xmax)/2 + (xmax - xmin)/2 * sign(cos(π * (1 - i/(n_values - 1)))) * abs(cos(π * (1 - i/(n_values - 1))))^cbsv_alpha for i in 0:(n_values-1)]    
+    elseif grid_type == "parabolic"
+        # Parabolic transform
+        
     else
         @error("Grid type not supported!")
         error("Grid type not supported!")

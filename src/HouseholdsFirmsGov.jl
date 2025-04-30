@@ -1,3 +1,16 @@
+###############################################################################
+########################### HOUSEHOLDSFIRMSGOV.JL #############################
+
+##### This script defines smaller household-, firm-, government- related ######
+############# functions to solve the benchmark ProgTax(2025) model ############
+
+###############################################################################
+
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#----------...-----# 1. SMALLER HOUSEHOLD-RELATED FUNCTIONS #-----------------#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
 # Create a struct for households
 struct hh
@@ -15,7 +28,6 @@ function get_utility_hh(consumption, labor, hhpar; normalise = false)
         return (consumption ^ (1 - hhpar.rra))/(1 - hhpar.rra) - hhpar.phi * (labor ^ (1 + hhpar.frisch))/(1 + hhpar.frisch)
     end
 end
-
 
 # Define household taxes 
 function tax_hh(z, lambda_z, tau_z)
@@ -68,5 +80,19 @@ function get_opt_c_with_max_labor(rho, a, a_prime, w, net_r, taxes; max_labor = 
     return find_c_feldstein(rhs, taxes.lambda_c, taxes.tau_c; notax_upper=nothing)
 end
 
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#---------------------# 2. SMALLER FIRM-RELATED FUNCTIONS #-------------------#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
+# Define production 
+function cd_production(A, alpha, capital, labor)
+    return A * labor ^ (1 - alpha) * capital ^ alpha
+end
 
+# Optimal wage implied by firm's FOCs (Cobb Douglas)
+function cd_implied_opt_wage(r::Float64) 
+    return (1 - fpar.alpha) * fpar.tfp *
+           ((fpar.alpha * fpar.tfp / (r + fpar.delta)) ^ (fpar.alpha / (1 - fpar.alpha)))
+end
