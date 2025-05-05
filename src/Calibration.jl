@@ -38,11 +38,11 @@ include("Numerics.jl")
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
-# Calibrating productivity process using Rouwenhorst - Copied in Parameters.jl
-# AR(1) persistency parameter drawn from LANGOT, MALMBERG, TRIPIER, HAIRAULT, 2023
-# AR(1) volatility calibrated to match Gini coefficient for income distribution
-rho_prod_ar1 = 0.966
-sigma_prod_ar1 = 0.4786
+# Calibrated - Cahn et al. 2023
+# Calibrating productivity process using Rouwenhorst 
+# AR(1) process parameters drawn from LANGOT, FÈVE, MATHERON, 2023
+rho_prod_ar1 = 0.935
+sigma_prod_ar1 = 0.2976
 n_prod_ar1 = 7
 mean_prod_ar1 = 0
 
@@ -74,10 +74,12 @@ brackets = [
 
 # Compute effective tax rate and plot
 target_eff_rate = compute_effective_tax(brackets; output = :rate, plot = true,
-                                        graph_title = "Statutory Effective Tax Rate - France, 2025 (Family coefficient = 1)")
+                                        graph_title = "Statutory Effective Tax Rate - France, 2025 (Family coefficient = 1)",
+                                        max_income = 500000.00)
 
 # Compute total tax amount and plot
 target_tax = compute_effective_tax(brackets; output = :taxes, plot = true,
-                                   graph_title = "Statutory Income Tax Liability - France, 2025 (Family coefficient = 1)")
+                                   graph_title = "Statutory Income Tax Liability - France, 2025 (Family coefficient = 1)",
+                                   max_income = 500000.00)
 
 # De-mean

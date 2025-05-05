@@ -53,8 +53,8 @@ timestamp_start = Dates.format(now(), "yyyymmdd-HH_MM_SS")
 @info("Making grids...")
 
 # Define grid parameters
-gpar = GridParams(a_min, 200.000, 100, # Assets
-                    0.0, 1, 50,    # Labor
+gpar = GridParams(a_min, 300.000, 300, # Assets
+                    0.0, 1, 100,    # Labor
                     length(rho_grid) # Productivity 
                     )
 
@@ -70,16 +70,16 @@ l_grid = makeGrid(gpar.l_min, gpar.l_max, gpar.N_l)
 rho_dist = find_stable_dist(pi_rho)
 
 # Taxation parameters - baseline calibration
-# taxes = Taxes(0.7, 0.2, # lambda_y, tau_y, 
-#             0.7, 0.136, #lambda_c, tau_c,
-#             0.3 # tau_k
-#             )
+taxes = Taxes(0.7, 0.1695, # lambda_y, tau_y, 
+0.83, 0.0398, #lambda_c, tau_c,
+0.352 # tau_k
+)
 
 # Taxation parameters - no taxes            
-taxes = Taxes(1.0, 0.0, # lambda_y, tau_y, 
-1.0, 0.0, #lambda_c, tau_c,
-0.0 # tau_k
-)
+# taxes = Taxes(1.0, 0.0, # lambda_y, tau_y, 
+# 1.0, 0.0, #lambda_c, tau_c,
+# 0.0 # tau_k
+# )
 
 # # Taxation parameters - Custom taxes            
 # taxes = Taxes(0.7, 0.475, # lambda_y, tau_y, 
@@ -173,10 +173,51 @@ plot_model_vs_data(Float64.(wealth_df.value), mod_stats, ["Bottom 50%", "Top 10%
 #---------------------------------# 3. INCOME #--------------------------------#
 
 # Compute Gini coefficient for income (plot Lorenz Curve)
-compute_gini(stat_dist, distL * w, plot_curve = true)
+gini_inc_pretax = compute_gini(distL * w, stat_dist, plot_curve = false)
+# gini_inc_aftertax = compute_gini(distL * w - distWtax, stat_dist, plot_curve = true)
 
+# Model: gross labor income distribution 
+gross_labor_income = policy_l .* rho_grid .* w    # diag(ρ_grid)*policy_l*w
+labor_tax_policy = gross_labor_income .- taxes.lambda_y .* gross_labor_income .^ (1 - taxes.tau_y)
 
-#---------------------------------# 3. LABOR #--------------------------------#
+# Compute effective average rate per income decile
+decile_shares, labor_taxes_collected, 
+Wtax_avg_rates, decile_cutoffs = analyze_income_dist(gross_labor_income, stat_dist;
+                                                            n_deciles = 10)
+
+#------------------------------# 4. CONSUMPTION #-----------------------------#
+
+# Computing consumption tax per each state
+consumption_tax_policy = policy_c .- taxes.lambda_c .* policy_c .^ (1 - taxes.tau_c) 
+
+# A glance at the rates
+cons_tax_rates = consumption_tax_policy ./ policy_c
+
+cons_tax_gini = compute_gini(consumption_tax_policy, stat_dist; plot_curve=false)
+pre_tax_cons_gini = compute_gini(policy_c .+ consumption_tax_policy, stat_dist; plot_curve=true)
+
+# Compute Kakwani Index - Gini for tax collected - Gini for pre-tax tax base
+kakwani_cons_tax = cons_tax_gini - pre_tax_cons_gini
+
+#---------------------------------# 5. LABOR #--------------------------------#
 
 # Compute average hours worked 
 avgH = sum(policy_l .* stat_dist)
+println("Income process: $rho_prod_ar1, $sigma_prod_ar1")
+println("Gini for income distribution: $gini_inc_pretax")
+println("Average hours worked: $avgH")
+println("Capital-to-output ratio: $KtoY")    
+GtoY = aggG/aggY
+println("GovExp-to-output ratio: $GtoY")
+# Taxation calibration results 
+shareWtax = aggT_y / aggG
+shareCtax = aggT_c / aggG
+shareKtax = aggT_k / aggG
+cons_tax_rates_min_max = round.(extrema(cons_tax_rates), digits=3)
+println("Share of revenue from labor income tax: $shareWtax")
+println("Share of revenue from consumption tax: $shareCtax")
+println("Share of revenue from capital return tax: $shareKtax")
+println("Kakwani index for consumption tax: $kakwani_cons_tax")
+println("Rates for consumption tax ranging between: $cons_tax_rates_min_max")
+
+

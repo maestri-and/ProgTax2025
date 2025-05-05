@@ -35,36 +35,28 @@ struct HHParams
 end
 
 hhpar = HHParams(
-    0.96,         # Discount factor    
-    1.500,        # Relative risk-aversion coefficient
-    85.00,        # Psi parameter - relative disutility of labor - Ferriere et al. 2023
-    2.5           # Frisch elasticity of substitution - Ferriere et al. 2023
+    0.975,       # Discount factor    
+    1.550,       # Relative risk-aversion coefficient
+    115.00,      # Phi parameter - relative disutility of labor - Ferriere et al. 2023
+    2.5          # Frisch elasticity of substitution - Ferriere et al. 2023
 )
 
 # Labor productivity 
-# Uncalibrated: Li(2013) - TBM
-# rho_grid = [0.1805, 0.3625, 0.8127, 1.8098, 3.8989, 8.4002, 18.0980]
+struct prodAR1Params
+    rho_prod_ar1::Float64   # Persistency of AR(1) income process
+    sigma_prod_ar1::Float64 # Volatility of AR(1) income process
+    n_prod_ar1::Int64       # Number of states 
+    mean_prod_ar1:: Float64 # Mean of AR(1) process
+end
 
-# Labor productivity transition matrix
-# pi_rho = [
-#     0.9687 0.0313 0 0 0 0 0;
-#     0.0445 0.8620 0.0935 0 0 0 0;
-#     0 0.0667 0.9180 0.0153 0 0 0;
-#     0 0 0.0666 0.8669 0.0665 0 0;
-#     0 0 0 0.1054 0.8280 0.0666 0;
-#     0 0 0 0 0.1235 0.8320 0.0445;
-#     0 0 0 0 0 0.2113 0.7887
-# ]
-
-# Calibrated - Langot et al. 2023
 # Calibrating productivity process using Rouwenhorst 
-# AR(1) process parameters drawn from LANGOT, MALMBERG, TRIPIER, HAIRAULT, 2023
-rho_prod_ar1 = 0.966
-sigma_prod_ar1 = 0.4786
-n_prod_ar1 = 7
-mean_prod_ar1 = 0
+# AR(1) process parameters set to minimise Gini for income distribution
+rhopar = prodAR1Params(0.944,
+                       0.214,
+                       7,
+                       0.0)
 
-markov_rho = rouwenhorst(n_prod_ar1, rho_prod_ar1, sigma_prod_ar1, mean_prod_ar1)
+markov_rho = rouwenhorst(rhopar.n_prod_ar1, rhopar.rho_prod_ar1, rhopar.sigma_prod_ar1, rhopar.mean_prod_ar1)
 
 pi_rho = markov_rho.p
 rho_grid = exp.(collect(markov_rho.state_values))
@@ -92,7 +84,7 @@ struct FirmParams
     tfp          ::Float64        # Total factor productivity
 end
 
-fpar = FirmParams(1/3, 0.06, 1) # As in Ferriere et al. 2023
+fpar = FirmParams(1/3, 0.09, 1) # As in Ferriere et al. 2023
 
 # Government parameters
 
@@ -122,7 +114,7 @@ end
 # Compute natural borrowing limit
 # Derived such that low-productivity-and-wealth household
 # can pay proceedings from her debt even with a very high interest rate
-a_min_r = 0.10
+a_min_r = 0.1
 a_min_l_max = 0.8
 a_min = - rho_grid[1] * cd_implied_opt_wage(a_min_r) * a_min_l_max / a_min_r
 

@@ -19,6 +19,10 @@
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
+
+#---------------------------------# A. WEALTH #--------------------------------#
+
+
 function compute_wealth_distribution_stats(stat_dist, a_grid; 
     cutoffs = [0.5, (0.3, 0.7), -0.1], replace_debt = false)
     # Flatten stationary distribution and get cumulative distribution
@@ -110,12 +114,88 @@ function compute_wealth_distribution_stats(stat_dist, a_grid;
 end
 
 
+#---------------------------------# B. INCOME #--------------------------------#
+
+
+function analyze_income_dist(gross_labor_income::Matrix{Float64},
+                                     stat_dist::Matrix{Float64};
+                                     n_deciles::Int = 10,
+                                     plot::Bool = true,
+                                     labor_tax_policy = labor_tax_policy,
+                                     analyse_tax_rates::Bool = true)
+
+    # Flatten inputs
+    incomes = vec(gross_labor_income)
+    masses = vec(stat_dist)
+
+    # Sort by income
+    sorted_indices = sortperm(incomes)
+    sorted_incomes = incomes[sorted_indices]
+    sorted_masses = masses[sorted_indices]
+
+    # Compute cumulative mass
+    cum_mass = cumsum(sorted_masses)
+    total_mass = cum_mass[end]
+
+    # Compute thresholds
+    thresholds = range(0, stop=sorted_incomes[end], length=n_deciles+1)
+    decile_shares = Float64[]
+    start_idx = 1
+
+    for i in 1:n_deciles
+        # Find upper bound of the current decile
+        end_val = thresholds[i+1]
+        end_idx = searchsortedlast(sorted_incomes, end_val)
+        push!(decile_shares, sum(sorted_masses[start_idx:end_idx]))
+        start_idx = end_idx + 1
+    end
+
+    # # Clean from zero shares
+    # keep = findall(decile_shares .> 0.0)
+    # decile_shares = decile_shares[keep]
+    # n_deciles = length(decile_shares)
+
+    # Plot if requested
+    if plot
+        fig = CairoMakie.Figure(size = (800, 500))
+        ax = CairoMakie.Axis(fig[1, 1], title = "Population Share by Income Decile",
+                             xlabel = "Income Decile", ylabel = "Share of Population",
+                             xticks = (1:n_deciles, ["D$i" for i in 1:n_deciles]))
+        CairoMakie.barplot!(ax, 1:n_deciles, decile_shares, color = :dodgerblue)
+        CairoMakie.xlims!(ax, 0.5, n_deciles + 0.5)
+        CairoMakie.autolimits!(ax)
+        CairoMakie.display(fig)
+    end
+
+    if analyse_tax_rates
+        # Return average tax rates per decile 
+        labor_taxes = vec(labor_tax_policy)[sorted_indices]
+        labor_taxes_collected = []
+        average_rates = []
+        start_idx = 1
+        for i in 1:n_deciles
+            # Find upper bound of the current decile
+            end_val = thresholds[i+1]
+            end_idx = searchsortedlast(sorted_incomes, end_val)
+            average_weights = sorted_masses[start_idx:end_idx] ./ sum(sorted_masses[start_idx:end_idx])
+            push!(labor_taxes_collected, sum(labor_taxes[start_idx:end_idx] .* sorted_masses[start_idx:end_idx]))
+            push!(average_rates, sum((labor_taxes[start_idx:end_idx] ./ sorted_incomes[start_idx:end_idx]) .* average_weights))
+            start_idx = end_idx + 1
+        end
+        
+        return decile_shares, labor_taxes_collected, average_rates, collect(thresholds[2:end])
+    else 
+        return decile_shares, collect(thresholds[2:end])
+    end
+end
+
+
 """
     gini(stat_dist::Matrix, distY::Matrix; plot_curve::Bool=false)
 
 Compute Gini coefficient and optionally plot Lorenz curve using CairoMakie.
 """
-function compute_gini(stat_dist::Matrix, distY::Matrix; plot_curve::Bool=false)
+function compute_gini(distY::Matrix, stat_dist::Matrix; plot_curve::Bool=false)
     # Flatten arrays
     weights = vec(stat_dist)
     incomes = vec(distY)
@@ -133,8 +213,10 @@ function compute_gini(stat_dist::Matrix, distY::Matrix; plot_curve::Bool=false)
     cum_income = cumsum(sorted_incomes .* sorted_weights)
     cum_income ./= cum_income[end]
 
-    # Gini coefficient (trapezoidal rule)
-    gini_val = 1 - 2 * sum(diff(cum_weights) .* (cum_income[1:end-1] + cum_income[2:end])) # trapezoid integration
+    # Gini coefficient (trapezoidal rule) - 1 - 2 * (Area under Lorenz Curve)
+    # Area under Lorenz curve: sum of k trapezoids with B = y_n+1, b = y_n, h = (x_n+1 - x_n)
+    gini_val = 1 - sum(diff(cum_weights) .* (cum_income[1:end-1] + cum_income[2:end])) # trapezoid integration
+    sum(diff(cum_weights) .* (cum_income[1:end-1] + cum_income[2:end]))
 
     if plot_curve
         fig = CairoMakie.Figure()
@@ -148,4 +230,80 @@ function compute_gini(stat_dist::Matrix, distY::Matrix; plot_curve::Bool=false)
     end
 
     return gini_val
+end
+
+
+#------------------------------# C. CONSUMPTION #-----------------------------#
+
+
+function analyze_consumption_dist(policy_c::Matrix{Float64},
+    stat_dist::Matrix{Float64};
+    n_deciles::Int = 10,
+    plot::Bool = true,
+    labor_tax_policy = labor_tax_policy,
+    analyse_tax_rates::Bool = true)
+
+    # Flatten inputs
+    incomes = vec(gross_labor_income)
+    masses = vec(stat_dist)
+
+    # Sort by income
+    sorted_indices = sortperm(incomes)
+    sorted_incomes = incomes[sorted_indices]
+    sorted_masses = masses[sorted_indices]
+
+    # Compute cumulative mass
+    cum_mass = cumsum(sorted_masses)
+    total_mass = cum_mass[end]
+
+    # Compute thresholds
+    thresholds = range(0, stop=sorted_incomes[end], length=n_deciles+1)
+    decile_shares = Float64[]
+    start_idx = 1
+
+    for i in 1:n_deciles
+        # Find upper bound of the current decile
+        end_val = thresholds[i+1]
+        end_idx = searchsortedlast(sorted_incomes, end_val)
+        push!(decile_shares, sum(sorted_masses[start_idx:end_idx]))
+        start_idx = end_idx + 1
+    end
+
+    # # Clean from zero shares
+    # keep = findall(decile_shares .> 0.0)
+    # decile_shares = decile_shares[keep]
+    # n_deciles = length(decile_shares)
+
+    # Plot if requested
+    if plot
+        fig = CairoMakie.Figure(size = (800, 500))
+        ax = CairoMakie.Axis(fig[1, 1], title = "Population Share by Income Decile",
+        xlabel = "Income Decile", ylabel = "Share of Population",
+        xticks = (1:n_deciles, ["D$i" for i in 1:n_deciles]))
+        CairoMakie.barplot!(ax, 1:n_deciles, decile_shares, color = :dodgerblue)
+        CairoMakie.xlims!(ax, 0.5, n_deciles + 0.5)
+        CairoMakie.autolimits!(ax)
+        CairoMakie.display(fig)
+    end
+
+    if analyse_tax_rates
+    # Return average tax rates per decile 
+        labor_taxes = vec(labor_tax_policy)[sorted_indices]
+        labor_taxes_collected = []
+        average_rates = []
+        start_idx = 1
+        for i in 1:n_deciles
+            # Find upper bound of the current decile
+            end_val = thresholds[i+1]
+            end_idx = searchsortedlast(sorted_incomes, end_val)
+            average_weights = sorted_masses[start_idx:end_idx] ./ sum(sorted_masses[start_idx:end_idx])
+            push!(labor_taxes_collected, sum(labor_taxes[start_idx:end_idx] .* sorted_masses[start_idx:end_idx]))
+            push!(average_rates, sum((labor_taxes[start_idx:end_idx] ./ sorted_incomes[start_idx:end_idx]) .* average_weights))
+            start_idx = end_idx + 1
+        end
+
+        return decile_shares, labor_taxes_collected, average_rates, collect(thresholds[2:end])
+    else 
+        return decile_shares, collect(thresholds[2:end])
+    end
 end

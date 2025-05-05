@@ -555,7 +555,7 @@ function plot_heatmap_stationary_distribution(stat_dist; taxes=taxes)
     # Initialize plot
     p = Plots.heatmap(stat_dist,
     title=LaTeXString("$title_text\n\$$(tax_info)\$\n"), 
-    xlabel="Wealth (a)", ylabel="Productivity (ρ)",
+    xlabel="Wealth level (a)", ylabel="Productivity level (ρ)",
     color = :heat,                # or :heat
     background_color = :white,
     colorbar_title = "\nDensity",
