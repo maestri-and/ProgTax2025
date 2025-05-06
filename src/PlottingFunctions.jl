@@ -584,9 +584,9 @@ function plot_density_by_productivity(stat_dist, a_grid, gpar; rho_grid=nothing)
     return plt
 end
 
-function plot_wealth_dist_bar(stats::Vector; title_str::String = "Wealth Distribution", show_labels::Bool = true)
+function plot_dist_stats_bar(stats::Vector; title_str::String = "Wealth Distribution", show_labels::Bool = true)
     """
-    plot_wealth_dist_bar(stats::Vector{Tuple}; title_str="Wealth Distribution", show_labels=true)
+    plot_dist_stats_bar(stats::Vector{Tuple}; title_str="Wealth Distribution", show_labels=true)
 
     Plots a bar chart from a vector of tuples of the form:
       (quantile_ref, share, _) where:

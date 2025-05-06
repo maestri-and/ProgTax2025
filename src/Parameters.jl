@@ -35,9 +35,9 @@ struct HHParams
 end
 
 hhpar = HHParams(
-    0.975,       # Discount factor    
-    1.550,       # Relative risk-aversion coefficient
-    115.00,      # Phi parameter - relative disutility of labor - Ferriere et al. 2023
+    0.971,       # Discount factor    
+    1.500,       # Relative risk-aversion coefficient
+    105.00,      # Phi parameter - relative disutility of labor - Ferriere et al. 2023
     2.5          # Frisch elasticity of substitution - Ferriere et al. 2023
 )
 
@@ -51,8 +51,8 @@ end
 
 # Calibrating productivity process using Rouwenhorst 
 # AR(1) process parameters set to minimise Gini for income distribution
-rhopar = prodAR1Params(0.944,
-                       0.214,
+rhopar = prodAR1Params(0.9183,
+                       0.2976,
                        7,
                        0.0)
 
@@ -60,6 +60,7 @@ markov_rho = rouwenhorst(rhopar.n_prod_ar1, rhopar.rho_prod_ar1, rhopar.sigma_pr
 
 pi_rho = markov_rho.p
 rho_grid = exp.(collect(markov_rho.state_values))
+uncond_var = rhopar.sigma_prod_ar1^2 / (1 - rhopar.rho_prod_ar1^2)
 
 # Taxation
 mutable struct Taxes
@@ -117,6 +118,7 @@ end
 a_min_r = 0.1
 a_min_l_max = 0.8
 a_min = - rho_grid[1] * cd_implied_opt_wage(a_min_r) * a_min_l_max / a_min_r
+# a_min = -0.50 # Fix to test Gini 
 
 # Iterations and computations
 struct CompParams

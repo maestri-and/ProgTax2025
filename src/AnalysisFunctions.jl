@@ -117,7 +117,7 @@ end
 #---------------------------------# B. INCOME #--------------------------------#
 
 
-function analyze_income_dist(gross_labor_income::Matrix{Float64},
+function analyze_income_dist(distYlabor_pretax::Matrix{Float64},
                                      stat_dist::Matrix{Float64};
                                      n_deciles::Int = 10,
                                      plot::Bool = true,
@@ -125,7 +125,7 @@ function analyze_income_dist(gross_labor_income::Matrix{Float64},
                                      analyse_tax_rates::Bool = true)
 
     # Flatten inputs
-    incomes = vec(gross_labor_income)
+    incomes = vec(distYlabor_pretax)
     masses = vec(stat_dist)
 
     # Sort by income
@@ -190,15 +190,11 @@ function analyze_income_dist(gross_labor_income::Matrix{Float64},
 end
 
 
-"""
-    gini(stat_dist::Matrix, distY::Matrix; plot_curve::Bool=false)
-
-Compute Gini coefficient and optionally plot Lorenz curve using CairoMakie.
-"""
-function compute_gini(distY::Matrix, stat_dist::Matrix; plot_curve::Bool=false)
+function compute_income_distribution_stats(stat_dist, distYlabor_pretax; 
+    cutoffs = [0.5, (0.5, 0.9), -0.1])
     # Flatten arrays
     weights = vec(stat_dist)
-    incomes = vec(distY)
+    incomes = vec(distYlabor_pretax)
 
     # Sort by income
     sorted_idx = sortperm(incomes)
@@ -211,25 +207,135 @@ function compute_gini(distY::Matrix, stat_dist::Matrix; plot_curve::Bool=false)
     # Compute cumulative shares
     cum_weights = cumsum(sorted_weights)
     cum_income = cumsum(sorted_incomes .* sorted_weights)
-    cum_income ./= cum_income[end]
+    aggYlabor_pretax = cum_income[end]
+    # cum_income ./= aggYlabor_pretax
 
-    # Gini coefficient (trapezoidal rule) - 1 - 2 * (Area under Lorenz Curve)
-    # Area under Lorenz curve: sum of k trapezoids with B = y_n+1, b = y_n, h = (x_n+1 - x_n)
-    gini_val = 1 - sum(diff(cum_weights) .* (cum_income[1:end-1] + cum_income[2:end])) # trapezoid integration
-    sum(diff(cum_weights) .* (cum_income[1:end-1] + cum_income[2:end]))
+    # Initialise list of results
+    dist_stats = []
 
-    if plot_curve
-        fig = CairoMakie.Figure()
-        ax = CairoMakie.Axis(fig[1, 1], title = "Lorenz Curve (Gini = $(round(gini_val, digits=3)))",
-                  xlabel = "Cumulative Population Share", ylabel = "Cumulative Income Share")
+    for c in cutoffs
+    # Three types of arguments can be passed into cutoff as shares
+    # Positive float x => Bottom x share  
+    # Negative float x => Top x share
+    # Tuple of two floats x, y => Middle share from x to y 
+        #-----------# First and second case: bottom and top share #-----------# 
+        if isa(c, AbstractFloat) && ((c > 0 && c < 1) || (c < 0 && c > -1))
+            # Get bottom share as cutoff, also for top share
+            cutoff = c > 0 ? c : (1 + c)
+
+            # Get cumulative mass distribution cutoff from CDF 
+            cdf_idx = findfirst(x -> x > cutoff, cum_weights)
+
+            # Adjust for differences - remove excess population share
+            pop_res = cum_weights[cdf_idx] - cutoff
+
+            # Compute cumulative income and share of income adjusting for residual in last element
+            income_held = cum_income[cdf_idx] - sorted_incomes[cdf_idx] * pop_res # Final income
+            
+            # Get bottom or top share according to what sought
+            income_held = c > 0 ? income_held : aggYlabor_pretax - income_held
+            income_share = income_held / aggYlabor_pretax
+
+            # Store results
+            push!(dist_stats, (c, income_share, income_held))
+
+        #-----------# Second case: range (both positive values) #-----------# 
+
+        elseif isa(c, Tuple) && c[1] > 0 && c[2] > 0
+            # Extract values from tuple
+            cutoff_l = c[1]
+            cutoff_h = c[2]
+            # High end
+            # Get cumulative mass distribution cutoff from CDF using relative bottom
+            cdf_idx_h = findfirst(x -> x > cutoff_h, cum_weights)
+            cdf_level_h = cum_weights[cdf_idx_h]
+
+            # Adjust for differences - remove excess population share
+            pop_res = cdf_level_h - cutoff_h
+
+            # Compute cumulative wealth and share of wealth adjusting for residual in last element
+            income_held_h = cum_income[cdf_idx_h] - sorted_incomes[cdf_idx_h] * pop_res # Final income
+
+            # Repeat for low bottom share
+            cdf_idx_l = findfirst(x -> x > cutoff_l, cum_weights)
+            cdf_level_l = cum_weights[cdf_idx_l]
+
+            # Compute cumulative wealth and share of wealth adjusting for residual in last element
+            pop_res = cdf_level_l - cutoff_l
+            income_held_l = cum_income[cdf_idx_l] - sorted_incomes[cdf_idx_l] * pop_res # Final income
+
+            # Extract difference
+            income_held = income_held_h - income_held_l
+            income_share = income_held / aggYlabor_pretax
+
+            # Store results
+            push!(dist_stats, (c, income_share, income_held))
         
-        CairoMakie.lines!(ax, cum_weights, cum_income, label="Lorenz Curve", color=:blue)
-        CairoMakie.lines!(ax, [0, 1], [0, 1], linestyle=:dash, color=:black, label="Line of Equality")
-        CairoMakie.axislegend(ax, position = :lt)
-        display(fig)
+        else 
+            error("Check function arguments!")
+        end
     end
+    return dist_stats
+end
 
-    return gini_val
+function compute_average_income_stats(stat_dist, distYlabor_pretax; 
+    cutoffs = [0.5, 0.9, -0.1])
+    # Flatten arrays
+    weights = vec(stat_dist)
+    incomes = vec(distYlabor_pretax)
+
+    # Sort by income
+    sorted_idx = sortperm(incomes)
+    sorted_incomes = incomes[sorted_idx]
+    sorted_weights = weights[sorted_idx]
+
+    # Normalize weights
+    sorted_weights ./= sum(sorted_weights)
+
+    # Compute cumulative shares
+    cum_weights = cumsum(sorted_weights)
+    cum_income = cumsum(sorted_incomes .* sorted_weights)
+    aggYlabor_pretax = cum_income[end]
+    # cum_income ./= aggYlabor_pretax
+
+    # Initialise list of results
+    dist_stats = []
+
+    for c in cutoffs
+    # Three types of arguments can be passed into cutoff as shares
+    # Positive float x => Bottom x share  
+    # Negative float x => Top x share
+    # Tuple of two floats x, y => Middle share from x to y 
+        #-----------# First and second case: bottom and top share #-----------# 
+        if isa(c, AbstractFloat) && ((c > 0 && c < 1) || (c < 0 && c > -1))
+            # Get bottom share as cutoff, also for top share
+            cutoff = c > 0 ? c : (1 + c)
+
+            # Get cumulative mass distribution cutoff from CDF 
+            cdf_idx = findfirst(x -> x > cutoff, cum_weights)
+
+            # Adjust for differences - remove excess population share
+            pop_res = cum_weights[cdf_idx] - cutoff
+
+            if c > 0 
+                # Extract relevant income subdistribution, adjusting population share at cutoff
+                subdist = sorted_weights[1:cdf_idx]
+                subdist[end] = subdist[end] - pop_res
+                subweights = subdist / sum(subdist) # Rescale weights 
+                avg_income = sorted_incomes[1:cdf_idx]' * subweights # Final income
+            else 
+                # Extract relevant income subdistribution, adjusting population share at cutoff
+                subdist = sorted_weights[cdf_idx:end]
+                subdist[1] = pop_res
+                subweights = subdist / sum(subdist) # Rescale weights 
+                avg_income = sorted_incomes[cdf_idx:end]' * subweights # Final income
+            end
+
+            # Store results
+            push!(dist_stats, (c, avg_income))
+        end
+    end
+    return dist_stats
 end
 
 
@@ -244,7 +350,7 @@ function analyze_consumption_dist(policy_c::Matrix{Float64},
     analyse_tax_rates::Bool = true)
 
     # Flatten inputs
-    incomes = vec(gross_labor_income)
+    incomes = vec(distYlabor_pretax)
     masses = vec(stat_dist)
 
     # Sort by income
@@ -306,4 +412,68 @@ function analyze_consumption_dist(policy_c::Matrix{Float64},
     else 
         return decile_shares, collect(thresholds[2:end])
     end
+end
+
+
+#--------------------------------# D. TAXATION #-------------------------------#
+
+
+function compute_average_rate_stats(stat_dist, labor_tax_policy;
+                                    distYlabor_pretax = distYlabor_pretax, 
+                                    cutoffs = [1, 0.5, 0.9, -0.1])
+    # Flatten arrays
+    weights = vec(stat_dist)
+    taxes = vec(labor_tax_policy)
+    labor_tax_rate_policy = vec(labor_tax_policy ./ distYlabor_pretax)
+
+    # Sort by income
+    sorted_idx = sortperm(taxes)
+    sorted_taxes = taxes[sorted_idx]
+    sorted_weights = weights[sorted_idx]
+    sorted_rates = labor_tax_rate_policy[sorted_idx]
+
+    # Normalize weights
+    sorted_weights ./= sum(sorted_weights)
+
+    # Compute cumulative shares
+    cum_weights = cumsum(sorted_weights)
+
+    # Initialise list of results
+    dist_stats = []
+
+    for c in cutoffs
+    # Three types of arguments can be passed into cutoff as shares
+    # Positive float x => Bottom x share  
+    # Negative float x => Top x share
+    # Tuple of two floats x, y => Middle share from x to y 
+        #-----------# First and second case: bottom and top share #-----------# 
+        if isa(c, AbstractFloat) && ((c > 0 && c < 1) || (c < 0 && c > -1))
+            # Get bottom share as cutoff, also for top share
+            cutoff = c > 0 ? c : (1 + c)
+
+            # Get cumulative mass distribution cutoff from CDF 
+            cdf_idx = findfirst(x -> x > cutoff, cum_weights)
+
+            # Adjust for differences - remove excess population share
+            pop_res = cum_weights[cdf_idx] - cutoff
+
+            if c > 0 
+                # Extract relevant income subdistribution, adjusting population share at cutoff
+                subdist = sorted_weights[1:cdf_idx]
+                subdist[end] = subdist[end] - pop_res
+                subweights = subdist / sum(subdist) # Rescale weights 
+                avg_rate = sorted_rates[1:cdf_idx]' * subweights # Final income
+            else 
+                # Extract relevant income subdistribution, adjusting population share at cutoff
+                subdist = sorted_weights[cdf_idx:end]
+                subdist[1] = pop_res
+                subweights = subdist / sum(subdist) # Rescale weights 
+                avg_rate = sorted_rates[cdf_idx:end]' * subweights # Final income
+            end
+
+            # Store results
+            push!(dist_stats, (c, avg_rate))
+        end
+    end
+    return dist_stats
 end

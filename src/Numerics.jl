@@ -246,17 +246,51 @@ end
 
 ###############################################################################
 ###############################################################################
-############################### 4. CALIBRATION ################################
+############################## 4. DISTRIBUTIONS ###############################
 ###############################################################################
 ###############################################################################
 
-#-#-#-#-#-#-# Calibrating Feldstein function to target tax curve #-#-#-#-#-#-#
+"""
+    gini(stat_dist::Matrix, distY::Matrix; plot_curve::Bool=false)
 
-function minimise_tax_curve_distance(target_curve, functional_form;
-                                     targeting_range)
-    # Fit functional form to target curve by minimising sum of squared distances
+Compute Gini coefficient and optionally plot Lorenz curve using CairoMakie.
+"""
+function compute_gini(distY::Matrix, stat_dist::Matrix; plot_curve::Bool=false)
+    # Flatten arrays
+    weights = vec(stat_dist)
+    incomes = vec(distY)
+
+    # Sort by income
+    sorted_idx = sortperm(incomes)
+    sorted_incomes = incomes[sorted_idx]
+    sorted_weights = weights[sorted_idx]
+
+    # Normalize weights
+    sorted_weights ./= sum(sorted_weights)
+
+    # Compute cumulative shares
+    cum_weights = cumsum(sorted_weights)
+    cum_income = cumsum(sorted_incomes .* sorted_weights)
+    cum_income ./= cum_income[end]
+
+    # Gini coefficient (trapezoidal rule) - 1 - 2 * (Area under Lorenz Curve)
+    # Area under Lorenz curve: sum of k trapezoids with B = y_n+1, b = y_n, h = (x_n+1 - x_n)
+    gini_val = 1 - sum(diff(cum_weights) .* (cum_income[1:end-1] + cum_income[2:end])) # trapezoid integration
+    sum(diff(cum_weights) .* (cum_income[1:end-1] + cum_income[2:end]))
+
+    if plot_curve
+        fig = CairoMakie.Figure()
+        ax = CairoMakie.Axis(fig[1, 1], title = "Lorenz Curve (Gini = $(round(gini_val, digits=3)))",
+                  xlabel = "Cumulative Population Share", ylabel = "Cumulative Income Share")
+        
+        CairoMakie.lines!(ax, cum_weights, cum_income, label="Lorenz Curve", color=:blue)
+        CairoMakie.lines!(ax, [0, 1], [0, 1], linestyle=:dash, color=:black, label="Line of Equality")
+        CairoMakie.axislegend(ax, position = :lt)
+        display(fig)
+    end
+
+    return gini_val
 end
-
 
 
 

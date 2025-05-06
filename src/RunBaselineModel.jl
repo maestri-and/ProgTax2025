@@ -53,14 +53,14 @@ timestamp_start = Dates.format(now(), "yyyymmdd-HH_MM_SS")
 @info("Making grids...")
 
 # Define grid parameters
-gpar = GridParams(a_min, 300.000, 300, # Assets
-                    0.0, 1, 100,    # Labor
+gpar = GridParams(a_min, 300.000, 100, # Assets
+                    0.0, 1, 50,    # Labor
                     length(rho_grid) # Productivity 
                     )
 
 # Assets
 a_gtype = "polynomial"
-a_grid = makeGrid(gpar.a_min, gpar.a_max, gpar.N_a; grid_type = a_gtype, pol_power = 3)
+a_grid = makeGrid(gpar.a_min, gpar.a_max, gpar.N_a; grid_type = a_gtype, pol_power = 3.5)
 
 # Labor
 l_grid = makeGrid(gpar.l_min, gpar.l_max, gpar.N_l)
@@ -70,7 +70,7 @@ l_grid = makeGrid(gpar.l_min, gpar.l_max, gpar.N_l)
 rho_dist = find_stable_dist(pi_rho)
 
 # Taxation parameters - baseline calibration
-taxes = Taxes(0.7, 0.1695, # lambda_y, tau_y, 
+taxes = Taxes(0.72, 0.18, # lambda_y, tau_y, 
 0.83, 0.0398, #lambda_c, tau_c,
 0.352 # tau_k
 )
@@ -95,12 +95,13 @@ taxes = Taxes(0.7, 0.1695, # lambda_y, tau_y,
 
 @info("Solving for λ_y: $(taxes.lambda_y),  τ_y: $(taxes.tau_y), λ_c: $(taxes.lambda_c), τ_c: $(taxes.tau_c), τ_k: $(taxes.tau_k)")
 
-# Compute equilibrium - Newton jumping a lot for small errors!
+# Compute equilibrium
 r, w, stat_dist, valuef, policy_a, policy_l, policy_c, 
 rates, errors = ComputeEquilibrium_Newton(a_grid, rho_grid, l_grid, 
                                     gpar, hhpar, fpar, taxes,
                                     pi_rho, comp_params; 
-                                    prevent_Newton_jump = false)
+                                    prevent_Newton_jump = false,
+                                    initial_r = 0.025)
 
 # Compute other useful distributions and aggregates
 distC, distK, distH, distL,
@@ -150,7 +151,7 @@ distA_stats = compute_wealth_distribution_stats(stat_dist, a_grid;
                                                 cutoffs = [0.5, 0.6, 0.8, -0.1, -0.05, -0.01], 
                                                 replace_debt = false)
 
-plot_wealth_dist_bar(distA_stats)
+plot_dist_stats_bar(distA_stats)
 
 # Plot vs data 
 # Import wealth data 
@@ -177,24 +178,39 @@ gini_inc_pretax = compute_gini(distL * w, stat_dist, plot_curve = false)
 # gini_inc_aftertax = compute_gini(distL * w - distWtax, stat_dist, plot_curve = true)
 
 # Model: gross labor income distribution 
-gross_labor_income = policy_l .* rho_grid .* w    # diag(ρ_grid)*policy_l*w
-labor_tax_policy = gross_labor_income .- taxes.lambda_y .* gross_labor_income .^ (1 - taxes.tau_y)
+distYlabor_pretax = policy_l .* rho_grid .* w    # diag(ρ_grid)*policy_l*w
+labor_tax_policy = distYlabor_pretax .- taxes.lambda_y .* distYlabor_pretax .^ (1 - taxes.tau_y)
+
+labor_tax_rate_policy = labor_tax_policy ./ distYlabor_pretax 
 
 # Compute effective average rate per income decile
-decile_shares, labor_taxes_collected, 
-Wtax_avg_rates, decile_cutoffs = analyze_income_dist(gross_labor_income, stat_dist;
-                                                            n_deciles = 10)
+# decile_shares, labor_taxes_collected, 
+# Wtax_avg_rates, decile_cutoffs = analyze_income_dist(distYlabor_pretax, stat_dist;
+#                                                             n_deciles = 10)
 
+# Compute gross income distribution and average income stats
+distYlabor_stats = compute_income_distribution_stats(stat_dist, distYlabor_pretax) 
+plot_dist_stats_bar(distYlabor_stats)  
+
+avg_income_stats = compute_average_income_stats(stat_dist, distYlabor_pretax; 
+    cutoffs = [0.5, 0.9, -0.1])
+
+t10tob50_ratio = avg_income_stats[3][2] / avg_income_stats[1][2]
+t10tob90_ratio = avg_income_stats[3][2] / avg_income_stats[2][2]
+
+# Compute average effective rates by population decile
+avg_rates = compute_average_rate_stats(stat_dist, labor_tax_policy)
+b50t10aetr = round.([avg_rates[1][2], avg_rates[3][2]], digits=3)
 #------------------------------# 4. CONSUMPTION #-----------------------------#
 
 # Computing consumption tax per each state
 consumption_tax_policy = policy_c .- taxes.lambda_c .* policy_c .^ (1 - taxes.tau_c) 
 
 # A glance at the rates
-cons_tax_rates = consumption_tax_policy ./ policy_c
+cons_tax_eff_rates = consumption_tax_policy ./ policy_c
 
 cons_tax_gini = compute_gini(consumption_tax_policy, stat_dist; plot_curve=false)
-pre_tax_cons_gini = compute_gini(policy_c .+ consumption_tax_policy, stat_dist; plot_curve=true)
+pre_tax_cons_gini = compute_gini(policy_c .+ consumption_tax_policy, stat_dist; plot_curve=false)
 
 # Compute Kakwani Index - Gini for tax collected - Gini for pre-tax tax base
 kakwani_cons_tax = cons_tax_gini - pre_tax_cons_gini
@@ -203,7 +219,7 @@ kakwani_cons_tax = cons_tax_gini - pre_tax_cons_gini
 
 # Compute average hours worked 
 avgH = sum(policy_l .* stat_dist)
-println("Income process: $rho_prod_ar1, $sigma_prod_ar1")
+println("Income process: $(rhopar.rho_prod_ar1), $(rhopar.sigma_prod_ar1)")
 println("Gini for income distribution: $gini_inc_pretax")
 println("Average hours worked: $avgH")
 println("Capital-to-output ratio: $KtoY")    
@@ -213,11 +229,14 @@ println("GovExp-to-output ratio: $GtoY")
 shareWtax = aggT_y / aggG
 shareCtax = aggT_c / aggG
 shareKtax = aggT_k / aggG
-cons_tax_rates_min_max = round.(extrema(cons_tax_rates), digits=3)
+cons_tax_rates_min_max = round.(extrema(cons_tax_eff_rates), digits=3)
+labor_tax_rates_min_max = round.(extrema(labor_tax_rate_policy), digits=3)
+
 println("Share of revenue from labor income tax: $shareWtax")
 println("Share of revenue from consumption tax: $shareCtax")
 println("Share of revenue from capital return tax: $shareKtax")
 println("Kakwani index for consumption tax: $kakwani_cons_tax")
 println("Rates for consumption tax ranging between: $cons_tax_rates_min_max")
+println("AETRs for labor income tax ranging between: $b50t10aetr")
 
 

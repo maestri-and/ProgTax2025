@@ -337,7 +337,7 @@ end
 
 # This function uses the budget constraint and the labor FOC 
 # derived analytically to estimate optimal consumption and labor as 
-# functions of (ρ, a, a'), to reduce households problem to a single choice
+# functions of (rho, a, a'), to reduce households problem to a single choice
 
 function find_opt_cons_labor(rho_grid, a_grid, w, net_r, taxes, hhpar, gpar; replace_neg_consumption = true)
     # Create matrices for optimal consumption and optimal labor
@@ -496,11 +496,11 @@ function intVFI_FOC_parallel(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, h
     derived from the first-order conditions.
 
     Args:
-        opt_u_itp     : Interpolated utility function {(ρ, a) => u(c(a'), l(a'))}
+        opt_u_itp     : Interpolated utility function {(rho, a) => u(c(a'), l(a'))}
         pi_rho        : Transition matrix for productivity levels
         rho_grid      : Grid of productivity levels
         a_grid        : Grid of asset values
-        max_a_prime   : Upper bound for a' choices per (ρ, a)
+        max_a_prime   : Upper bound for a' choices per (rho, a)
         hhpar : Household parameters (contains β)
         gpar         : Struct containing grid and problem parameters
         comp_params  : Struct containing VFI computational parameters
@@ -522,7 +522,7 @@ function intVFI_FOC_parallel(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, h
         # Interpolate continuation value function
         itp_cont, itp_cont_wrap = interp_cont_value(V_guess, pi_rho, rho_grid, a_grid)
         
-        # --- Step 2: Maximize Bellman equation for each (ρ, a) ---
+        # --- Step 2: Maximize Bellman equation for each (rho, a) ---
         @inbounds @threads for a_i in 1:gpar.N_a 
             for rho_i in 1:gpar.N_rho
                 # # Solving VFI issues - plotting 
@@ -535,7 +535,7 @@ function intVFI_FOC_parallel(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, h
                 #     for a_p in a_prime_values
                 # ]
                 # # Plot 
-                # Plots.plot(a_prime_values, obj_values, title="Utility for ρ=$(rho_grid[rho_i]), a=$(a_grid[a_i])",
+                # Plots.plot(a_prime_values, obj_values, title="Utility for rho=$(rho_grid[rho_i]), a=$(a_grid[a_i])",
                 #      xlabel="Future Assets (a')", ylabel="Utility", lw=2, legend=false)
 
 
@@ -548,7 +548,7 @@ function intVFI_FOC_parallel(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, h
                 # ]
 
                 # # Plot the objective function
-                # Plots.plot(a_prime_values, obj_values, title="Continuation value for ρ=$(rho_grid[rho_i]), a=$(a_grid[a_i])",
+                # Plots.plot(a_prime_values, obj_values, title="Continuation value for rho=$(rho_grid[rho_i]), a=$(a_grid[a_i])",
                 #      xlabel="Future Assets (a')", ylabel="Discounted continuation Value", lw=2, legend=false)
 
                 # # Plot objective
@@ -558,7 +558,7 @@ function intVFI_FOC_parallel(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, h
                 # ]
 
                 # # Plot the objective function
-                # Plots.plot(a_prime_values, obj_values, title="Objective Function for ρ=$(rho_grid[rho_i]), a=$(a_grid[a_i])",
+                # Plots.plot(a_prime_values, obj_values, title="Objective Function for rho=$(rho_grid[rho_i]), a=$(a_grid[a_i])",
                 #      xlabel="Future Assets (a')", ylabel="Objective Value", lw=2, legend=false)
 
 
@@ -602,12 +602,12 @@ function compute_policy_matrix(opt_policy_itp, policy_a_int, a_grid, rho_grid)
 
     Args:
         opt_policy_itp : Array of 1D interpolations mapping a' → policy value (labor or consumption).
-        policy_a_int   : Function or interpolation mapping (ρ, a) → a' (optimal asset policy).
+        policy_a_int   : Function or interpolation mapping (rho, a) → a' (optimal asset policy).
         a_grid         : Vector of asset grid values.
         rho_grid       : Vector of productivity grid values.
 
     Returns:
-        A matrix of policy values for l(ρ, a) or c(ρ, a), depending on the input.
+        A matrix of policy values for l(rho, a) or c(rho, a), depending on the input.
     """
 
     # Preallocate policy matrix
@@ -640,14 +640,14 @@ function SolveHouseholdProblem(a_grid, rho_grid, l_grid, gpar, w, r,
 
     Returns:
         - hh_labor_tax       : Net labor taxes y - T_y
-        - hh_consumption     : Optimal consumption at each (ρ, a, a')
+        - hh_consumption     : Optimal consumption at each (rho, a, a')
         - hh_consumption_tax : Consumption tax paid
         - opt_c_FOC          : Optimal consumption from FOC
         - opt_l_FOC          : Optimal labor from FOC
         - valuef             : Value function at convergence
         - policy_a           : Policy function for a'
-        - policy_l           : Labor policy function l(ρ, a)
-        - policy_c           : Consumption policy function c(ρ, a)
+        - policy_l           : Labor policy function l(rho, a)
+        - policy_c           : Consumption policy function c(rho, a)
     """
     ########## PRELIMINARY ##########
     # Allocate net interest rate (for simplicity)
@@ -864,10 +864,14 @@ function ComputeEquilibrium_Newton(
     a_grid, rho_grid, l_grid,
     gpar, hhpar, fpar, taxes,
     pi_rho, comp_params; collect_errors = true, damping_weight = 1,
-    prevent_Newton_jump = true
+    prevent_Newton_jump = true, initial_r = nothing
 )
     #--- Initial guess for interest rate
-    r_mid = 0.025
+    if isnothing(initial_r)
+        r_mid = 0.025
+    else
+        r_mid = initial_r
+    end
     bw = damping_weight  # Damping parameter
 
     #--- Wage implied by firm's FOC given r
@@ -1008,8 +1012,8 @@ function compute_aggregates_and_check(stat_dist, policy_a, policy_c, policy_l, r
     aggT_c = sum(distCtax)              # Net consumption tax revenue, after redistribution if any
 
     # Labor Tax
-    gross_labor_income = policy_l .* rho_grid .* w    # diag(ρ_grid)*policy_l*w
-    labor_tax_policy = gross_labor_income .- taxes.lambda_y .* gross_labor_income .^ (1 - taxes.tau_y)
+    distYlabor_pretax = policy_l .* rho_grid .* w    # diag(rho_grid)*policy_l*w
+    labor_tax_policy = distYlabor_pretax .- taxes.lambda_y .* distYlabor_pretax .^ (1 - taxes.tau_y)
     distWtax = stat_dist .* labor_tax_policy
     aggT_y = sum(distWtax)                    # Net labor tax revenue, after redistribution if any
 
@@ -1033,7 +1037,7 @@ function compute_aggregates_and_check(stat_dist, policy_a, policy_c, policy_l, r
     end
 
     # Doublecheck budget constraint holding for optimal policies - Get max discrepancy
-    bc_max_discrepancy = findmax(abs.(policy_c .+ consumption_tax_policy .- (gross_labor_income .- labor_tax_policy .+ ((1 + (1 - taxes.tau_k)r) .* (ones(7, 1) * a_grid')) .- policy_a)))
+    bc_max_discrepancy = findmax(abs.(policy_c .+ consumption_tax_policy .- (distYlabor_pretax .- labor_tax_policy .+ ((1 + (1 - taxes.tau_k)r) .* (ones(7, 1) * a_grid')) .- policy_a)))
     if bc_max_discrepancy[1] > 0.01 && raise_bc_error
         @error("Max budget constraint discrepancy is larger than 0.01! Doublecheck accuracy! $bc_max_discrepancy")
         error("Max budget constraint discrepancy is larger than 0.01! Doublecheck accuracy! $bc_max_discrepancy")
