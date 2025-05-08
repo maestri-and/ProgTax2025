@@ -33,172 +33,8 @@ include("Interpolants.jl")
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
 
-### Simpler version: single rate of progressivity for consumption taxes and labor income taxes
-#### Memory efficient version - More in-place operations + @views
-### Memory gains: 24% 
-
-function compute_hh_taxes_consumption_utility_ME(a_grid, rho_grid, l_grid, gpar, w, net_r, taxes, hhpar)
-
-    # SECTION 1 - COMPUTE DISPOSABLE INCOME (AFTER WAGE TAX & ASSET RETURNS) #
-    
-    #Compute gross labor income for each combination of labor and productivity
-    y = (l_grid * rho_grid') .* w 
-
-    # Compute labor income taxes for one degree of labor income tax progressivity - Allowing negative tax
-    T_y = y .- taxes.lambda_y .* y .^ (1 - taxes.tau_y);
-
-    # Correct for negative tax
-    # T_y = max.(T_y, 0)
-
-    # Compute net labor income
-    y .-= T_y
-
-    # Compute disposable income after asset transfers (net capital returns (1+(1 - tau_k)r)a)
-    # Disposable income for each possible asset-state-specific interests yielded from t-1 
-    # 3rd dim: a
-    old_dims_y = ndims(y)
-    y = ExpandMatrix(y, gpar.N_a)
-    gross_capital_returns = Vector2NDimMatrix((1 + net_r) .* a_grid, old_dims_y)
-
-    y .+= gross_capital_returns;
-
-    ########## SECTION 2 - COMPUTE CONSUMPTION AND CONSUMPTION TAXES ##########
-
-    # Find resource allocated to consumption (consumption + consumption taxes) for each combination of 
-    # labor, productivity, assets today
-    # 4th dim: a_prime 
-    old_dims_y = ndims(y)
-    hh_consumption_plus_tax = ExpandMatrix(y, gpar.N_a)
-    savings = Vector2NDimMatrix(a_grid, old_dims_y) #a'
-
-    hh_consumption_plus_tax .-= savings;
-
-    # Disentangle consumption from consumption + consumption taxes (Feldstein specification)
-    # for one degree of consumption tax progressivity
-
-    # Initialise consumption matrix
-    hh_consumption = copy(hh_consumption_plus_tax);
-
-    # Find consumption level
-    # ALLOWING FOR CONSUMPTION SUBSIDIES THROUGH CONSUMPTION TAX 
-    # Comment the "; notax_upper = break_even" line to allow for redistributive subsidies
-    # Through consumption tax
-
-    # Set progressivity rate
-    prog_rate = taxes.tau_c
-
-    # Find break-even point 
-    break_even = taxes.lambda_c^(1/prog_rate)
-
-    # To allow for redistributive subsidies remove the notax_upper argument from the function
-    @views hh_consumption[:, :, :, :] .= find_c_feldstein.(hh_consumption_plus_tax[:, :, :, :], taxes.lambda_c, prog_rate
-    ; # notax_upper = break_even
-    )
-
-    # Retrieve consumption tax - in-place to avoid costly memory allocation
-    hh_consumption_plus_tax .-= hh_consumption;
-
-    # Rename for clarity
-    hh_consumption_tax = hh_consumption_plus_tax
-
-    # Correct negative consumption 
-    @views hh_consumption[hh_consumption .< 0] .= -Inf
-
-    ########## SECTION 3 - COMPUTE HOUSEHOLD UTILITY ##########
-
-    # Compute households utility
-    hh_utility = similar(hh_consumption); # Pre-allocate
-
-    # Compute household utility if consumption is positive
-    @threads for l in 1:gpar.N_l        
-        @views hh_utility[l, :, :, :] .= ifelse.(hh_consumption[l, :, :, :] .> 0,
-                                                get_utility_hh.(hh_consumption[l, :, :, :],
-                                                l_grid[l], hhpar), 
-                                                hh_consumption[l, :, :, :])
-    end
-
-    return T_y, hh_consumption, hh_consumption_tax, hh_utility
-end
-
-###############################################################################
-##### SPLIT AND WRITE TO DISK TO SAVE MEMORY #####
-###############################################################################
-
-
-function compute_consumption_grid(a_grid, rho_grid, l_grid, gpar, w, net_r, taxes)
-    # SECTION 1 - COMPUTE DISPOSABLE INCOME (AFTER WAGE TAX & ASSET RETURNS) #
-    
-    #Compute gross labor income for each combination of labor and productivity
-    y = (l_grid * rho_grid') .* w 
-
-    # Compute labor income taxes for one degree of labor income tax progressivity - Allowing negative tax
-    T_y = y .- taxes.lambda_y .* y .^ (1 - taxes.tau_y);
-
-    # Correct for negative tax
-    # T_y = max.(T_y, 0)
-
-    # Compute net labor income
-    y .-= T_y
-
-    # Compute disposable income after asset transfers (gross capital returns (1+r)a)
-    # Disposable income for each possible asset-state-specific interests yielded from t-1 
-    # 3rd dim: a
-    old_dims_y = ndims(y)
-    y = ExpandMatrix(y, gpar.N_a)
-    gross_capital_returns = Vector2NDimMatrix((1 + net_r) .* a_grid, old_dims_y)
-
-    y .+= gross_capital_returns;
-
-    ########## SECTION 2 - COMPUTE CONSUMPTION AND CONSUMPTION TAXES ##########
-
-    # Find resource allocated to consumption (consumption + consumption taxes) for each combination of 
-    # labor, productivity, assets today
-    # 4th dim: a_prime 
-    old_dims_y = ndims(y)
-    hh_consumption_plus_tax = ExpandMatrix(y, gpar.N_a)
-    savings = Vector2NDimMatrix(a_grid, old_dims_y) #a'
-
-    hh_consumption_plus_tax .-= savings;
-
-    # Disentangle consumption from consumption + consumption taxes (Feldstein specification)
-    # for one degree of consumption tax progressivity
-
-    # Initialise consumption matrix
-    hh_consumption = copy(hh_consumption_plus_tax);
-
-    # Find consumption level
-    # ALLOWING FOR CONSUMPTION SUBSIDIES THROUGH CONSUMPTION TAX 
-    # Comment the "; notax_upper = break_even" line to allow for redistributive subsidies
-    # Through consumption tax
-
-    # Set progressivity rate
-    prog_rate = taxes.tau_c
-
-    # Find break-even point 
-    break_even = taxes.lambda_c^(1/prog_rate)
-
-    # To allow for redistributive subsidies remove the notax_upper argument from the function
-    @views hh_consumption[:, :, :, :] .= find_c_feldstein.(hh_consumption_plus_tax[:, :, :, :], taxes.lambda_c, prog_rate
-    ; # notax_upper = break_even
-    )
-
-    # Retrieve consumption tax - in-place to avoid costly memory allocation
-    hh_consumption_plus_tax .-= hh_consumption;
-
-    # Rename for clarity
-    hh_consumption_tax = hh_consumption_plus_tax
-
-    # Correct negative consumption 
-    @views hh_consumption[hh_consumption .< 0] .= -Inf
-
-    # Write to disk consumption tax matrix for later usage 
-    filename = "ConsumptionTax_l$(gpar.N_l)_a$(gpar.N_a).txt"
-    SaveMatrix(hh_consumption_tax, "output/temp/" * filename)
-    return T_y, hh_consumption
-end
-
-
-function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, net_r, taxes; replace_neg_consumption = false, return_cplustax = false)
+function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, net_r, taxes; 
+                                          replace_neg_consumption = false, return_cplustax = false)
     """
     Computes household consumption, labor income taxes, and consumption taxes over the grid.
 
@@ -297,7 +133,8 @@ function compute_consumption_grid_for_itp(a_grid, rho_grid, l_grid, gpar, w, r, 
     end
 end
 
-function compute_utility_grid(hh_consumption, l_grid, hhpar; minus_inf = true)
+function compute_utility_grid(hh_consumption, l_grid, hhpar; minus_inf = true,
+                              parallelise = true)
     """
     Computes household utility for given consumption and labor choices.
 
@@ -316,11 +153,20 @@ function compute_utility_grid(hh_consumption, l_grid, hhpar; minus_inf = true)
     hh_utility = similar(hh_consumption); # Pre-allocate
 
     # Compute household utility if consumption is positive
-    @threads for l in 1:gpar.N_l        
-        @views hh_utility[l, :, :, :] .= ifelse.(hh_consumption[l, :, :, :] .> 0,
-                                                get_utility_hh.(hh_consumption[l, :, :, :],
-                                                l_grid[l], hhpar), 
-                                                -Inf)
+    if parallelise
+        @threads for l in 1:gpar.N_l        
+            @views hh_utility[l, :, :, :] .= ifelse.(hh_consumption[l, :, :, :] .> 0,
+                                                    get_utility_hh.(hh_consumption[l, :, :, :],
+                                                    l_grid[l], hhpar), 
+                                                    -Inf)
+        end
+    else
+        for l in 1:gpar.N_l        
+            @views hh_utility[l, :, :, :] .= ifelse.(hh_consumption[l, :, :, :] .> 0,
+                                                    get_utility_hh.(hh_consumption[l, :, :, :],
+                                                    l_grid[l], hhpar), 
+                                                    -Inf)
+        end
     end
 
     if !minus_inf 
@@ -490,7 +336,7 @@ end
 
 
 function intVFI_FOC_parallel(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, hhpar, gpar, comp_params;
-    V_guess = zeros(gpar.N_rho, gpar.N_a))
+    V_guess = zeros(gpar.N_rho, gpar.N_a), parallelise = true)
     """
     Performs Value Function Iteration (VFI) using optimal labor and consumption choices 
     derived from the first-order conditions.
@@ -501,7 +347,7 @@ function intVFI_FOC_parallel(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, h
         rho_grid      : Grid of productivity levels
         a_grid        : Grid of asset values
         max_a_prime   : Upper bound for a' choices per (rho, a)
-        hhpar : Household parameters (contains β)
+        hhpar : Household parameters (contains beta)
         gpar         : Struct containing grid and problem parameters
         comp_params  : Struct containing VFI computational parameters
 
@@ -523,53 +369,31 @@ function intVFI_FOC_parallel(opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, h
         itp_cont, itp_cont_wrap = interp_cont_value(V_guess, pi_rho, rho_grid, a_grid)
         
         # --- Step 2: Maximize Bellman equation for each (rho, a) ---
-        @inbounds @threads for a_i in 1:gpar.N_a 
-            for rho_i in 1:gpar.N_rho
-                # # Solving VFI issues - plotting 
-                # # Compute the objective function values
-                # # Plot only utility
-                # plot_utility_vs_aprime(rho_i, a_i, opt_u_itp, opt_c_itp, opt_l_itp, a_grid, max_a_prime, hhpar)
+        if parallelise
+            @inbounds @threads for a_i in 1:gpar.N_a 
+                for rho_i in 1:gpar.N_rho
+                    # Define and optimize the objective function
+                    results[rho_i, a_i] = optimize(a_prime -> -(opt_u_itp[rho_i, a_i](a_prime) + hhpar.beta * itp_cont_wrap(rho_grid[rho_i], a_prime)), 
+                                                gpar.a_min, max_a_prime[rho_i, a_i], 
+                                                GoldenSection()) 
 
-                # obj_values = [
-                #     (opt_u_itp[rho_i, a_i](a_p))
-                #     for a_p in a_prime_values
-                # ]
-                # # Plot 
-                # Plots.plot(a_prime_values, obj_values, title="Utility for rho=$(rho_grid[rho_i]), a=$(a_grid[a_i])",
-                #      xlabel="Future Assets (a')", ylabel="Utility", lw=2, legend=false)
+                    # Store results: Value and policy function
+                    V_new[rho_i, a_i] = -Optim.minimum(results[rho_i, a_i])
+                    policy_a[rho_i, a_i] = Optim.minimizer(results[rho_i, a_i]) 
+                end
+            end
+        else
+            @inbounds for a_i in 1:gpar.N_a 
+                for rho_i in 1:gpar.N_rho
+                    # Define and optimize the objective function
+                    results[rho_i, a_i] = optimize(a_prime -> -(opt_u_itp[rho_i, a_i](a_prime) + hhpar.beta * itp_cont_wrap(rho_grid[rho_i], a_prime)), 
+                                                gpar.a_min, max_a_prime[rho_i, a_i], 
+                                                GoldenSection()) 
 
-
-                # # Plot only discounted continuation value
-                # plot_interpolation_vs_knots(V_guess, pi_rho, rho_grid, a_grid, rho_level = 7)
-
-                # obj_values = [
-                #     (itp_cont_wrap(rho_grid[rho_i], a_p))
-                #     for a_p in a_prime_values
-                # ]
-
-                # # Plot the objective function
-                # Plots.plot(a_prime_values, obj_values, title="Continuation value for rho=$(rho_grid[rho_i]), a=$(a_grid[a_i])",
-                #      xlabel="Future Assets (a')", ylabel="Discounted continuation Value", lw=2, legend=false)
-
-                # # Plot objective
-                # obj_values = [
-                #     (opt_u_itp[rho_i, a_i](a_p) + hhpar.beta * itp_cont_wrap(rho_grid[rho_i], a_p))
-                #     for a_p in a_prime_values
-                # ]
-
-                # # Plot the objective function
-                # Plots.plot(a_prime_values, obj_values, title="Objective Function for rho=$(rho_grid[rho_i]), a=$(a_grid[a_i])",
-                #      xlabel="Future Assets (a')", ylabel="Objective Value", lw=2, legend=false)
-
-
-                # Define and optimize the objective function
-                results[rho_i, a_i] = optimize(a_prime -> -(opt_u_itp[rho_i, a_i](a_prime) + hhpar.beta * itp_cont_wrap(rho_grid[rho_i], a_prime)), 
-                                            gpar.a_min, max_a_prime[rho_i, a_i], 
-                                            GoldenSection()) 
-
-                # Store results: Value and policy function
-                V_new[rho_i, a_i] = -Optim.minimum(results[rho_i, a_i])
-                policy_a[rho_i, a_i] = Optim.minimizer(results[rho_i, a_i]) 
+                    # Store results: Value and policy function
+                    V_new[rho_i, a_i] = -Optim.minimum(results[rho_i, a_i])
+                    policy_a[rho_i, a_i] = Optim.minimizer(results[rho_i, a_i]) 
+                end
             end
         end
 
@@ -662,10 +486,6 @@ function SolveHouseholdProblem(a_grid, rho_grid, l_grid, gpar, w, r,
         replace_neg_consumption = true
     );
 
-    # cExp2cInt = interp_consumption(hh_consumption, hh_consumption_plus_tax)
-
-    # test_budget_constraint() # TBM - to be removed or adjusted for function wrapping 
-
     ########## SECTION 2 - COMPUTE OPTIMAL CONSUMPTION AND LABOR ##########
 
     # @info("Pinning down optimal labor and consumption using labor FOC...")
@@ -687,7 +507,7 @@ function SolveHouseholdProblem(a_grid, rho_grid, l_grid, gpar, w, r,
 
     @elapsed valuef, policy_a = intVFI_FOC_parallel(
         opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, hhpar, gpar, comp_params;
-        V_guess = V_guess
+        V_guess = V_guess, parallelise = false
     )
 
     ########## SECTION 5 - RECONSTRUCT FINAL POLICY FUNCTIONS ##########
@@ -864,7 +684,8 @@ function ComputeEquilibrium_Newton(
     a_grid, rho_grid, l_grid,
     gpar, hhpar, fpar, taxes,
     pi_rho, comp_params; collect_errors = true, damping_weight = 1,
-    prevent_Newton_jump = true, initial_r = nothing
+    prevent_Newton_jump = false, initial_r = nothing,
+    print_info = true
 )
     #--- Initial guess for interest rate
     if isnothing(initial_r)
@@ -914,7 +735,9 @@ function ComputeEquilibrium_Newton(
         ###### 5. Market Clearing Error ######
         K_error = asset_demand - asset_supply
 
-        @info("Iter $iter: r = $(round(r_mid, digits=6)), K_supply = $(round(asset_supply, digits=6)), K_demand = $(round(asset_demand, digits=6)), error = $(round(K_error, digits=8))")
+        if print_info
+            @info("Iter $iter: r = $(round(r_mid, digits=6)), K_supply = $(round(asset_supply, digits=6)), K_demand = $(round(asset_demand, digits=6)), error = $(round(K_error, digits=8))")
+        end
 
         if collect_errors
             push!(rates, r_mid)
@@ -922,7 +745,9 @@ function ComputeEquilibrium_Newton(
         end
 
         if abs(K_error) < comp_params.ms_tol
-            @info("✅ Equilibrium found: r = $r_mid, w = $w after $iter iterations")
+            if print_info
+                @info("✅ Equilibrium found: r = $r_mid, w = $w after $iter iterations")
+            end
             if collect_errors
                 return r_mid, w, stat_dist, valuef, policy_a, policy_l, policy_c, rates, errors
             else
@@ -1052,3 +877,191 @@ function compute_aggregates_and_check(stat_dist, policy_a, policy_c, policy_l, r
            excess_prod, bc_max_discrepancy)
 end
 
+function compute_government_revenue(stat_dist, policy_c, policy_l, a_grid, rho_grid, r, w, taxes)
+    # Consumption Tax
+    consumption_tax_policy = policy_c .- taxes.lambda_c .* policy_c .^ (1 - taxes.tau_c) 
+    distCtax = stat_dist .* consumption_tax_policy 
+    aggT_c = sum(distCtax)              # Net consumption tax revenue, after redistribution if any
+
+    # Labor Tax
+    distYlabor_pretax = policy_l .* rho_grid .* w    # diag(rho_grid)*policy_l*w
+    labor_tax_policy = distYlabor_pretax .- taxes.lambda_y .* distYlabor_pretax .^ (1 - taxes.tau_y)
+    distWtax = stat_dist .* labor_tax_policy
+    aggT_y = sum(distWtax)                    # Net labor tax revenue, after redistribution if any
+
+    # Capital Tax
+    distKtax = (taxes.tau_k * r) .* a_grid
+    aggT_k = sum(stat_dist * distKtax)
+
+    # Government expenditure
+    return aggT_y + aggT_c + aggT_k
+end
+
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#------------------# 9. SOLVING FOR EQUIVALENT TAX REGIME  #------------------#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+
+
+# function JointEquilibriumNewton(
+#     a_grid, rho_grid, l_grid,
+#     gpar, hhpar, fpar, t_taxes,
+#     pi_rho, comp_params, G_target;
+#     adjust_par::Symbol = :tau_c,
+#     initial_r = 0.03, 
+#     tol = 1e-6,
+#     max_iter = 50
+# )   
+#     # Initialise new tax regime vector (copy base taxes)
+#     new_taxes = deepcopy(t_taxes)
+
+#     # Initial guesses for r and the tax parameter to adjust
+#     r_guess = initial_r
+#     tpar_guess = getproperty(new_taxes, adjust_par)
+
+#     for iter in 1:max_iter
+#         # Update the tax parameter before solving inner equilibrium
+#         setproperty!(new_taxes, adjust_par, tpar_guess)
+
+#         # === Inner GE equilibrium given r and tax ===
+#         r_eq, w_eq, stat_dist, _, policy_a, policy_l, policy_c = ComputeEquilibrium_Newton(
+#             a_grid, rho_grid, l_grid, gpar, hhpar, fpar, new_taxes,
+#             pi_rho, comp_params;
+#             initial_r = r_guess,
+#             collect_errors = false,
+#             print_info = false
+#         )
+
+
+#         # === Compute equilibrium residuals ===
+#         aggK = sum(stat_dist .* a_grid')
+#         effective_L = sum(stat_dist .* policy_l .* rho_grid)
+
+#         K_demand = ((fpar.alpha * fpar.tfp) / (r_eq + fpar.delta)) ^ (1 / (1 - fpar.alpha)) * effective_L
+#         F1 = K_demand - aggK  # capital market clearing condition
+
+#         aggG = compute_government_revenue(stat_dist, policy_c, policy_l, a_grid, rho_grid, r_eq, w_eq, new_taxes)
+#         F2 = G_target - aggG  # government budget target
+
+#         F = [F1, F2]
+
+#         # === Numerical Jacobian via finite differences ===
+#         J = zeros(2, 2)
+#         h = 1e-4
+#         for i in 1:2
+#             r_p, tpar_p = r_guess, tpar_guess
+#             if i == 1
+#                 r_p += h
+#             else
+#                 tpar_p += h
+#             end
+
+#             setproperty!(new_taxes, adjust_par, tpar_p)
+
+#             r_eq_p, w_eq_p, stat_dist_p, _, policy_a_p, policy_l_p, policy_c_p = ComputeEquilibrium_Newton(
+#                 a_grid, rho_grid, l_grid, gpar, hhpar, fpar, new_taxes,
+#                 pi_rho, comp_params;
+#                 damping_weight = 1.0,
+#                 initial_r = r_p,
+#                 collect_errors = false,
+#                 print_info = false
+#             )
+
+#             aggK_p = sum(stat_dist_p .* a_grid')
+#             effective_L_p = sum(stat_dist_p .* policy_l_p .* rho_grid)
+
+#             K_demand_p = ((fpar.alpha * fpar.tfp) / (r_eq_p + fpar.delta)) ^ (1 / (1 - fpar.alpha)) * effective_L_p
+#             F1_p = K_demand_p - aggK_p
+
+#             aggG_p = compute_government_revenue(stat_dist_p, policy_c_p, policy_l_p, a_grid, rho_grid, r_eq_p, w_eq_p, new_taxes)
+#             F2_p = G_target - aggG_p
+
+#             J[:, i] .= ([F1_p, F2_p] .- F) ./ h
+#         end
+
+#         # === Newton update step ===
+#         dx = J \ F
+#         r_guess -= dx[1]
+#         tpar_guess -= dx[2]
+
+#         println("2-Dim Newton Iter $iter: r = $(r_guess), $(adjust_par) = $(tpar_guess), norm(F) = $(norm(F))")
+
+#         if norm(F) < tol
+#             println("✅ 2-Dim Newton Converged: r = $(r_guess), $(adjust_par) = $(tpar_guess)")
+#             return tpar_guess, r_guess
+#         end
+#     end
+
+#     error("❌ Joint Newton did not converge.")
+# end
+
+
+
+function TwoLevelEquilibriumNewton(
+    a_grid, rho_grid, l_grid,
+    gpar, hhpar, fpar, t_taxes,
+    pi_rho, comp_params, G_target;
+    adjust_par::Symbol = :tau_c,
+    initial_r = 0.03, 
+    tol = 1e-6,
+    max_iter = 50,
+    regime_search_only = true
+)   
+    # Initialise new tax regime vector (copy base taxes)
+    new_taxes = deepcopy(t_taxes)
+
+    # Initial guess for the tax parameter to adjust
+    tpar_guess = getproperty(new_taxes, adjust_par)
+    h = 1e-4  # step for finite difference
+
+
+    for iter in 1:max_iter
+        # Update the tax parameter
+        setproperty!(new_taxes, adjust_par, tpar_guess)
+
+        # === Inner Newton to find r ===
+        r_eq, w_eq, stat_dist, _, policy_a, policy_l, policy_c = ComputeEquilibrium_Newton(
+            a_grid, rho_grid, l_grid, gpar, hhpar, fpar, new_taxes,
+            pi_rho, comp_params;
+            initial_r = initial_r,
+            collect_errors = false,
+            print_info = false
+        )
+
+        # === Compute government revenue and its gap ===
+        aggG = compute_government_revenue(stat_dist, policy_c, policy_l, a_grid, rho_grid, r_eq, w_eq, new_taxes)
+        G_error = G_target - aggG
+
+        @info("[Thread $(Threads.threadid())] Outer Newton Iter $iter: $(adjust_par) = $(tpar_guess), G_error = $(G_error)")
+
+        if abs(G_error) < tol
+            println("✅ Converged: r = $(r_eq), $(adjust_par) = $(tpar_guess)")
+            if regime_search_only
+                return tpar_guess, r_eq, aggG
+            end
+        end
+
+        # === Finite difference to compute derivative of G w.r.t. tax param ===
+        tpar_up = tpar_guess + h
+        setproperty!(new_taxes, adjust_par, tpar_up)
+
+        r_up, w_up, stat_dist_up, _, policy_a_up, policy_l_up, policy_c_up = ComputeEquilibrium_Newton(
+            a_grid, rho_grid, l_grid, gpar, hhpar, fpar, new_taxes,
+            pi_rho, comp_params;
+            initial_r = initial_r,
+            collect_errors = false,
+            print_info = false
+        )
+
+        aggG_up = compute_government_revenue(stat_dist_up, policy_c_up, policy_l_up, a_grid, rho_grid, r_up, w_up, new_taxes)
+        G_error_up = G_target - aggG_up
+
+        dG = (G_error_up - G_error) / h
+
+        # Newton update for tax parameter
+        tpar_guess -= G_error / dG
+    end
+
+    error("❌ Joint Newton (outer on $(adjust_par)) did not converge.")
+end

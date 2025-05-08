@@ -82,6 +82,7 @@ function print_simulation_details(filepath::String;
         write(file, "Grid parameters: $(gpar)" * "\n")
 
         # Write parameters details
+        write(file, "Taxes parameters: $(taxes)" * "\n")
         write(file, "Household parameters: $(hhpar)" * "\n")
         write(file, "Firm parameters: $(fpar)" * "\n")
         write(file, "Computational parameters: $(comp_params)" * "\n")
@@ -115,6 +116,10 @@ function SaveMatrix(matrix, filepath::String; overwrite=false, write_parameters 
             write(file, dims_str * "\n")
         elseif matrix isa AbstractFloat
             write(file, "1" * "\n")
+        elseif isstructtype(typeof(matrix))
+            write(file, "-99" * "\n")
+            # Extract tuple
+            matrix = [getfield.(Ref(matrix), fieldnames(typeof(matrix)))]
         else
             @error("Wrong argument type! Ensure your input is a matrix or a float!")
             error("Wrong argument type! Ensure your input is a matrix or a float!")
@@ -162,7 +167,7 @@ function read_results_from_txt(filepath::String)
     end
     
     # Initialise vector of values based on dims and taxes vectors
-    values = dims == [1] ? Float64[] : Array{Float64}[]
+    values = Any[]
     lambda_y_vec = Float64[]
     tau_y_vec    = Float64[]
     lambda_c_vec = Float64[]
@@ -197,6 +202,11 @@ function read_results_from_txt(filepath::String)
             if dims == [1]
                 # It's a scalar float
                 push!(values, parse(Float64, readline(io)))
+            elseif dims == [-99]
+                # It's a struct - read tuple
+                line = readline(io)
+                vals = parse.(Float64, split(line, ','))
+                push!(values, Tuple(vals))
             else
                 # It's a matrix stored as a comma-separated line
                 rows = Int(dims[1])
@@ -258,3 +268,55 @@ function get_model_results(folderpath::String; ignorefiles = ["placeholder.txt"]
 
     return df
 end 
+
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-----------# 3. EXPORTING AND IMPORTING TAX REGIME SEARCH RESULTS #----------#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+
+
+# Exporting search results: equivalent regime and equilibrium rate
+function WriteTaxSearchResults(eq_taxes, eq_r, eq_exp, filepath::String)
+    # Write tax results    
+    write(filepath, string(eq_taxes, "\n", eq_r, "\n", eq_exp))
+    @info("[Thread $(threadid())] Tax Search Results saved in $filepath")
+    return nothing
+end
+
+
+function print_tax_regime_search_session_details(regimes, taxes, filepath::String; 
+    session_time = session_time,
+    grid_parameters = gpar,
+    asset_grid_type = a_gtype,
+    hhpar = hhpar,
+    fpar = fpar,
+    comp_params =comp_params
+    )
+# Write file
+open(filepath, "w") do file
+
+    # Write time details
+    write(file, "TAX REGIME SEARCH SESSION - DETAILS" * "\n")
+    write(file, "Time spent: $(session_time)" * "\n")
+    write(file, "\n")
+
+    # Write parameters details
+    write(file, "Target regime: $(taxes)" * "\n")
+    l = length(regimes)
+    write(file, "Found $l equivalent regimes:" * "\n")
+    for reg in regimes
+        write(file, "$reg" * "\n")
+    end
+    write(file, "\n")
+    write(file, "Taxes parameters: $(taxes)" * "\n")
+    write(file, "Household parameters: $(hhpar)" * "\n")
+    write(file, "Firm parameters: $(fpar)" * "\n")
+    write(file, "Computational parameters: $(comp_params)" * "\n")
+
+    # Write grid details  
+    write(file, "Asset grid type: $(a_gtype)" * "\n") 
+    write(file, "Grid parameters: $(gpar)" * "\n")
+end
+return nothing
+end

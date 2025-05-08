@@ -31,7 +31,7 @@ end
 # Plotting dummy 3D utility function 
 
 # Function to plot the utility function and return the utility matrix and maximum point
-function plot_utility_function(rra, phi, frisch; normalise = false, c_range = (0.1, 5.0), l_range = (0.1, 5.0), num_points = 100)
+function plot_utility_function(rra, dis_labor, inv_frisch; normalise = false, c_range = (0.1, 5.0), l_range = (0.1, 5.0), num_points = 100)
     # Generate a range of consumption and labor values
     c_values = range(c_range..., length = num_points)
     l_values = range(l_range..., length = num_points)
@@ -66,7 +66,7 @@ end
 # Function to plot the utility function and return the utility matrix and maximum point
 # Imposing budget constraint to hold for given a, rho, a'
 
-function plot_utility_with_bc(rra, phi, frisch; a_i = 10, a_prime_i = 10, rho_i = 3, normalise = false, l_grid = l_grid)
+function plot_utility_with_bc(rra, dis_labor, inv_frisch; a_i = 10, a_prime_i = 10, rho_i = 3, normalise = false, l_grid = l_grid)
     # Choose labor grid
     l_values = l_grid
 
@@ -584,7 +584,8 @@ function plot_density_by_productivity(stat_dist, a_grid, gpar; rho_grid=nothing)
     return plt
 end
 
-function plot_dist_stats_bar(stats::Vector; title_str::String = "Wealth Distribution", show_labels::Bool = true)
+function plot_dist_stats_bar(stats::Vector; dist_type::String = "wlt",
+                                            show_labels::Bool = true)
     """
     plot_dist_stats_bar(stats::Vector{Tuple}; title_str="Wealth Distribution", show_labels=true)
 
@@ -604,6 +605,17 @@ function plot_dist_stats_bar(stats::Vector; title_str::String = "Wealth Distribu
     labels = String[]
     shares = Float64[]
 
+    # Set labels according to type of dist
+    if dist_type == "wlt" # Net wealth
+        title_dist = "Wealth Distribution"
+        ylabel_dist = "Net Wealth Share (%)"
+    elseif dist_type == "ptinc"
+        title_dist = "Income Distribution"
+        ylabel_dist = "Pre-Tax Income Share (%)"
+    else
+        error("Doublecheck your input distribution type!")
+    end
+
     # Parse input
     for (ref, share, _) in stats
         label = ref isa Tuple ? 
@@ -614,7 +626,7 @@ function plot_dist_stats_bar(stats::Vector; title_str::String = "Wealth Distribu
     end
 
     fig = CairoMakie.Figure(size = (800, 400))
-    ax = CairoMakie.Axis(fig[1, 1]; title=title_str, xlabel="Group", ylabel="Wealth Share (%)",
+    ax = CairoMakie.Axis(fig[1, 1]; title=title_dist, xlabel="Group", ylabel = ylabel_dist,
                          xticks=(1:length(labels), labels))
 
     # Plot bars

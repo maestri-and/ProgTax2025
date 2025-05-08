@@ -23,9 +23,9 @@ end
 function get_utility_hh(consumption, labor, hhpar; normalise = false)
     # Compute households' utility - with normalisation if necessary 
     if normalise == true
-        return (consumption ^ (1 - hhpar.rra) - 1)/(1 - hhpar.rra) - hhpar.phi * (labor ^ (1 + hhpar.frisch) - 1)/(1 + hhpar.frisch)
+        return (consumption ^ (1 - hhpar.rra) - 1)/(1 - hhpar.rra) - hhpar.dis_labor * (labor ^ (1 + hhpar.inv_frisch) - 1)/(1 + hhpar.inv_frisch)
     else
-        return (consumption ^ (1 - hhpar.rra))/(1 - hhpar.rra) - hhpar.phi * (labor ^ (1 + hhpar.frisch))/(1 + hhpar.frisch)
+        return (consumption ^ (1 - hhpar.rra))/(1 - hhpar.rra) - hhpar.dis_labor * (labor ^ (1 + hhpar.inv_frisch))/(1 + hhpar.inv_frisch)
     end
 end
 
@@ -48,13 +48,13 @@ end
 # Compute optimal labor - from analytical solution 
 function get_opt_labor_from_FOC(c, rho, w, taxes, hhpar; neg_consumption_error = false)
     # num = (taxes.lambda_y * (1 - taxes.tau_y) * (rho * w)^(1 - taxes.tau_y)) * c^(-hhpar.rra) 
-    # den = (hhpar.phi * (2 - taxes.lambda_c * (1 - taxes.tau_c) * c ^ (-taxes.tau_c)))
+    # den = (hhpar.dis_labor * (2 - taxes.lambda_c * (1 - taxes.tau_c) * c ^ (-taxes.tau_c)))
     if neg_consumption_error && c < 0 
         throw("Passed negative consumption to labor FOC!")
     else
         l_star = (((taxes.lambda_y * (1 - taxes.tau_y) * (rho * w)^(1 - taxes.tau_y)) * c^(-hhpar.rra)) / #Numerator
-        (hhpar.phi * (2 - taxes.lambda_c * (1 - taxes.tau_c) * c ^ (-taxes.tau_c))) #Denominator - TBM This can be negative with negative tau_c!
-        ) ^ (1 / (hhpar.frisch + taxes.tau_y)) # Exponent
+        (hhpar.dis_labor * (2 - taxes.lambda_c * (1 - taxes.tau_c) * c ^ (-taxes.tau_c))) #Denominator - TBM This can be negative with negative tau_c!
+        ) ^ (1 / (hhpar.inv_frisch + taxes.tau_y)) # Exponent
     end
     return l_star
 end

@@ -205,8 +205,8 @@ function interp_opt_funs(a_grid, opt_c_FOC, opt_l_FOC, gpar, hhpar)
     # Used as boundary in the maximisation
     max_a_prime = zeros(gpar.N_rho, gpar.N_a)
 
-    # Interpolate for each possible state (ρ, a)
-    @inbounds @threads for a_i in 1:gpar.N_a
+    # Interpolate for each possible state (ρ, a) - TBM Deparallelised for safer upper multi-threading
+    @inbounds for a_i in 1:gpar.N_a
         for rho_i in 1:gpar.N_rho            
             # Linear interpolation for consumption - Store also max a_prime
             opt_c_itp[rho_i, a_i], max_a_prime[rho_i, a_i] = piecewise_1D_interpolation(a_grid, opt_c_FOC[rho_i, a_i, :], spline=false, return_threshold=true)

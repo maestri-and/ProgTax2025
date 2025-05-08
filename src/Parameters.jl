@@ -26,22 +26,7 @@ include("HouseholdsFirmsGov.jl")
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
-# Household parameters
-struct HHParams
-    beta         ::Float64        # Discount factor
-    rra          ::Float64        # Relative risk-aversion coefficient
-    phi          ::Float64        # Psi parameter - relative disutility of labor - Ferriere et al. 2023
-    frisch       ::Float64        # Frisch elasticity of substitution - Ferriere et al. 2023
-end
-
-hhpar = HHParams(
-    0.971,       # Discount factor    
-    1.500,       # Relative risk-aversion coefficient
-    105.00,      # Phi parameter - relative disutility of labor - Ferriere et al. 2023
-    2.5          # Frisch elasticity of substitution - Ferriere et al. 2023
-)
-
-# Labor productivity 
+# Labor productivity process
 struct prodAR1Params
     rho_prod_ar1::Float64   # Persistency of AR(1) income process
     sigma_prod_ar1::Float64 # Volatility of AR(1) income process
@@ -61,6 +46,21 @@ markov_rho = rouwenhorst(rhopar.n_prod_ar1, rhopar.rho_prod_ar1, rhopar.sigma_pr
 pi_rho = markov_rho.p
 rho_grid = exp.(collect(markov_rho.state_values))
 uncond_var = rhopar.sigma_prod_ar1^2 / (1 - rhopar.rho_prod_ar1^2)
+
+# Household parameters
+struct HHParams
+    beta         ::Float64        # Discount factor
+    rra          ::Float64        # Relative risk-aversion coefficient
+    dis_labor    ::Float64        # Psi parameter - relative disutility of labor 
+    inv_frisch   ::Float64        # Inverse of Frisch elasticity of substitution 
+end
+
+hhpar = HHParams(
+    0.9675,      # Discount factor    
+    1.500,       # Relative risk-aversion coefficient
+    85.00,       # Phi parameter - relative disutility of labor
+    2.5          # Inverse of Frisch elasticity of substitution 
+)
 
 # Taxation
 mutable struct Taxes
@@ -85,10 +85,7 @@ struct FirmParams
     tfp          ::Float64        # Total factor productivity
 end
 
-fpar = FirmParams(1/3, 0.09, 1) # As in Ferriere et al. 2023
-
-# Government parameters
-
+fpar = FirmParams(1/3, 0.084, 1) 
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#

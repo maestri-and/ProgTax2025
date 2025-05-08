@@ -53,8 +53,8 @@ timestamp_start = Dates.format(now(), "yyyymmdd-HH_MM_SS")
 @info("Making grids...")
 
 # Define grid parameters
-gpar = GridParams(a_min, 300.000, 100, # Assets
-                    0.0, 1, 50,    # Labor
+gpar = GridParams(a_min, 300.000, 300, # Assets
+                    0.0, 1, 150,    # Labor
                     length(rho_grid) # Productivity 
                     )
 
@@ -70,8 +70,8 @@ l_grid = makeGrid(gpar.l_min, gpar.l_max, gpar.N_l)
 rho_dist = find_stable_dist(pi_rho)
 
 # Taxation parameters - baseline calibration
-taxes = Taxes(0.72, 0.18, # lambda_y, tau_y, 
-0.83, 0.0398, #lambda_c, tau_c,
+taxes = Taxes(0.7305, 0.1875, # lambda_y, tau_y, 
+0.85, 0.0343, #lambda_c, tau_c,
 0.352 # tau_k
 )
 
@@ -101,7 +101,7 @@ rates, errors = ComputeEquilibrium_Newton(a_grid, rho_grid, l_grid,
                                     gpar, hhpar, fpar, taxes,
                                     pi_rho, comp_params; 
                                     prevent_Newton_jump = false,
-                                    initial_r = 0.025)
+                                    initial_r = 0.03)
 
 # Compute other useful distributions and aggregates
 distC, distK, distH, distL,
@@ -111,6 +111,7 @@ aggT_c, aggT_y, aggT_k,
 excess_prod, bc_max_discrepancy = compute_aggregates_and_check(stat_dist, policy_a, policy_c, 
                                                                     policy_l, rho_grid, a_grid, w, r, taxes;
                                                                     raise_bc_error = false, raise_clearing_error = false);        
+
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
@@ -190,7 +191,7 @@ labor_tax_rate_policy = labor_tax_policy ./ distYlabor_pretax
 
 # Compute gross income distribution and average income stats
 distYlabor_stats = compute_income_distribution_stats(stat_dist, distYlabor_pretax) 
-plot_dist_stats_bar(distYlabor_stats)  
+plot_dist_stats_bar(distYlabor_stats, dist_type = "ptinc")  
 
 avg_income_stats = compute_average_income_stats(stat_dist, distYlabor_pretax; 
     cutoffs = [0.5, 0.9, -0.1])
@@ -200,7 +201,9 @@ t10tob90_ratio = avg_income_stats[3][2] / avg_income_stats[2][2]
 
 # Compute average effective rates by population decile
 avg_rates = compute_average_rate_stats(stat_dist, labor_tax_policy)
+aetr = sum(labor_tax_rate_policy .* stat_dist)
 b50t10aetr = round.([avg_rates[1][2], avg_rates[3][2]], digits=3)
+
 #------------------------------# 4. CONSUMPTION #-----------------------------#
 
 # Computing consumption tax per each state
@@ -239,4 +242,66 @@ println("Kakwani index for consumption tax: $kakwani_cons_tax")
 println("Rates for consumption tax ranging between: $cons_tax_rates_min_max")
 println("AETRs for labor income tax ranging between: $b50t10aetr")
 
+
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#--------------------------# 4. EXPORTING RESULTS #---------------------------#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+
+#------------------------# Export calibration details #-----------------------# 
+
+calibration_pars = String[]
+values = Float64[]
+
+# Collect parameters with their values
+for (name, obj) in [("hhpar", hhpar), 
+                    ("rhopar", rhopar),
+                    ("fpar", fpar), 
+                    ("taxes", taxes),
+                    ("gpar", gpar)]
+    for field in fieldnames(typeof(obj))
+        push!(calibration_pars, "$name.$field")
+        push!(values, getfield(obj, field))
+    end
+end
+
+# Export to CSV
+data = [calibration_pars values]
+writedlm("./output/baseline/parameters.csv", data, ',')
+
+
+#------------------------# Export steady state results #-----------------------# 
+
+# Save to file equilibrium details 
+items = Dict(
+    # Calibration details
+    :hhpar => hhpar, :rhopar => rhopar, :fpar => fpar, :taxes => taxes, :gpar => gpar, 
+    # Equilibrium 
+    :r => r, :w => w, :stat_dist => stat_dist,
+    # Policy rules
+    :policy_a => policy_a, :policy_l => policy_l, :policy_c => policy_c,
+    # Main distributions
+    :distC => distC, :distK => distK, :distH => distH, :distL => distL,
+    :distCtax => distCtax, :distWtax => distWtax, :distKtax => distKtax,
+    # Main aggregates
+    :aggC => aggC, :aggK => aggK, :aggH => aggH, :aggL => aggL, :aggG => aggG, :aggY => aggY,
+    :aggT_c => aggT_c, :aggT_y => aggT_y, :aggT_k => aggT_k,
+    # Accuracy stats
+    :excess_prod => excess_prod, :bc_max_discrepancy => bc_max_discrepancy[1],
+)
+
+for (name, mat) in items
+    filepath = "./output/baseline/model_results/" * string(name) * ".txt"
+    SaveMatrix(mat, filepath; overwrite=false)
+end
+
+#---------------------------# Export session details #-------------------------# 
+
+# Print session details 
+time_end = now()
+session_time = Dates.canonicalize(Dates.CompoundPeriod(Dates.DateTime(time_end) - Dates.DateTime(time_start)))
+timestamp_end = Dates.format(now(), "yyyymmdd-HH_MM_SS")
+
+print_simulation_details("./output/baseline/session_end_$(timestamp_end).txt")
 
