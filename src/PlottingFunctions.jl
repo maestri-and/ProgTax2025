@@ -382,7 +382,11 @@ function plot_policy_function(policy_data, a_grid, rho_grid; policy_type="assets
     title_text, ylabel_text, leg_pos = titles[policy_type]
     
     # Subtitle string with tax parameters
-    tax_info = "λ_y=$(taxes.lambda_y), τ_y=$(taxes.tau_y), λ_c=$(taxes.lambda_c), τ_c=$(taxes.tau_c), τ_k=$(taxes.tau_k)"
+    tax_info = "λ_y=$(round(taxes.lambda_y, digits=4)), " *
+                "τ_y=$(round(taxes.tau_y, digits=4)), " *
+                "λ_c=$(round(taxes.lambda_c, digits=4)), " * 
+                "τ_c=$(round(taxes.tau_c, digits=4)), " *
+                "τ_k=$(round(taxes.tau_k, digits=4))"
 
     # Initialize plot
     policy_title = title_text 

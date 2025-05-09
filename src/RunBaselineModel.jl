@@ -60,7 +60,7 @@ gpar = GridParams(a_min, 300.000, 300, # Assets
 
 # Assets
 a_gtype = "polynomial"
-a_grid = makeGrid(gpar.a_min, gpar.a_max, gpar.N_a; grid_type = a_gtype, pol_power = 3.5)
+a_grid = makeGrid(gpar.a_min, gpar.a_max, gpar.N_a; grid_type = a_gtype, pol_power = 4)
 
 # Labor
 l_grid = makeGrid(gpar.l_min, gpar.l_max, gpar.N_l)

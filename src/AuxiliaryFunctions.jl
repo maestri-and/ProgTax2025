@@ -27,9 +27,13 @@ using DataFrames
 
 # Function to generate grid with different spacing 
 # Currently supported: uniform (equally spaced), log-spaced, polynomial, chebyshev (cosine)
-function makeGrid(xmin, xmax, n_values; grid_type = "uniform", cbsv_alpha = 1.0, pol_power = 2)
+function makeGrid(xmin, xmax, n_values; 
+                  grid_type = "uniform", cbsv_alpha = 1.0, pol_power = 4,
+                  lab_double_bounds = (0.0, 0.6))
+
     if grid_type == "uniform"
         return collect(range(xmin, length=n_values, stop=xmax))
+
     elseif grid_type == "log"
         # Construct log-spaced grid
         # Correct for negative boundary if necessary 
@@ -41,17 +45,42 @@ function makeGrid(xmin, xmax, n_values; grid_type = "uniform", cbsv_alpha = 1.0,
         log_grid = collect(range(l_xmin, length=n_values, stop=l_xmax))
         # Apply inverse transformation to obtain log-spaced grid, re-correcting if needed 
         return ℯ.^(log_grid) .- shift
+
     elseif grid_type == "polynomial"
         # Transformation: x(g) = a + (b - a) * g^γ, with g∈[0,1]
         # Consider equally spaced grid on [0,1] of length n_values
         unif_grid = range(0, 1, n_values)
         # Compute grid for given gamma 
         return [xmin + (xmax - xmin) * g^pol_power for g in unif_grid]
+
     elseif grid_type == "chebyshev"
         return [(xmin + xmax)/2 + (xmax - xmin)/2 * sign(cos(π * (1 - i/(n_values - 1)))) * abs(cos(π * (1 - i/(n_values - 1))))^cbsv_alpha for i in 0:(n_values-1)]    
-    elseif grid_type == "parabolic"
-        # Parabolic transform
-        
+
+    elseif grid_type == "labor-double"
+        # For labor grid, double density within range lab_double_bounds
+        lb_lo, lb_hi = lab_double_bounds
+        @assert xmin <= lb_lo <= lb_hi <= xmax "lab_double_bounds must lie within [xmin, xmax]"
+
+        # Lengths of regions
+        L_out = (lb_lo - xmin) + (xmax - lb_hi)
+        L_in  = lb_hi - lb_lo
+
+        # Total "effective" length in d_in units:
+        # Outer counts as L_out / (2*d_in), inner as L_in / d_in
+        # So total points ≈ L_out / (2*d) + L_in / d + 1 (include endpoint)
+        # Solve for d
+        d = (2 * L_in + L_out) / (2 * (n_values - 1))
+
+        # Number of points in each region
+        n_left  = round(Int, (lb_lo - xmin) / (2d))
+        n_inner = round(Int, (lb_hi - lb_lo) / d)
+        n_right = n_values - 1 - n_left - n_inner  # -1 for endpoint adjustment
+
+        g_left  = range(xmin, lb_lo, length=n_left + 1)[1:end-1]
+        g_inner = range(lb_lo, lb_hi, length=n_inner + 1)[1:end-1]
+        g_right = range(lb_hi, xmax, length=n_right + 1)
+
+        return collect(vcat(g_left, g_inner, g_right))
     else
         @error("Grid type not supported!")
         error("Grid type not supported!")
@@ -276,47 +305,81 @@ end
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
 
-# Exporting search results: equivalent regime and equilibrium rate
+# Exporting search results: equivalent regime, equilibrium rate, aggregate G
 function WriteTaxSearchResults(eq_taxes, eq_r, eq_exp, filepath::String)
-    # Write tax results    
-    write(filepath, string(eq_taxes, "\n", eq_r, "\n", eq_exp))
-    @info("[Thread $(threadid())] Tax Search Results saved in $filepath")
+    line = string(eq_taxes, ";", eq_r, ";", eq_exp)
+    write(filepath, line)
+    @info("[Thread $(Threads.threadid())] Tax Search Results saved in $filepath")
     return nothing
 end
 
-
-function print_tax_regime_search_session_details(regimes, taxes, filepath::String; 
+function print_eq_regime_search_session_details(regimes, taxes, filepath::String; 
     session_time = session_time,
     grid_parameters = gpar,
     asset_grid_type = a_gtype,
     hhpar = hhpar,
     fpar = fpar,
-    comp_params =comp_params
-    )
-# Write file
-open(filepath, "w") do file
+    comp_params =comp_params,
+    regime_search_only = false)
+    # Write file
+    open(filepath, "w") do file
 
-    # Write time details
-    write(file, "TAX REGIME SEARCH SESSION - DETAILS" * "\n")
-    write(file, "Time spent: $(session_time)" * "\n")
-    write(file, "\n")
+        # Write time details
+        if regime_search_only
+            write(file, "TAX REGIME SEARCH SESSION - DETAILS" * "\n")
+        else
+            write(file, "EQUIVALENT TAX REGIME SIMULATIONS - DETAILS" * "\n")
+        end
+        write(file, "Time spent: $(session_time)" * "\n")
+        write(file, "\n")
 
-    # Write parameters details
-    write(file, "Target regime: $(taxes)" * "\n")
-    l = length(regimes)
-    write(file, "Found $l equivalent regimes:" * "\n")
-    for reg in regimes
-        write(file, "$reg" * "\n")
+        # Write parameters details
+        write(file, "Target regime: $(taxes)" * "\n")
+        l = length(regimes)
+        write(file, "Found $l equivalent regimes:" * "\n")
+        for reg in regimes
+            write(file, "$reg" * "\n")
+        end
+        write(file, "\n")
+        write(file, "Taxes parameters: $(taxes)" * "\n")
+        write(file, "Household parameters: $(hhpar)" * "\n")
+        write(file, "Firm parameters: $(fpar)" * "\n")
+        write(file, "Computational parameters: $(comp_params)" * "\n")
+
+        # Write grid details  
+        write(file, "Asset grid type: $(a_gtype)" * "\n") 
+        write(file, "Grid parameters: $(gpar)" * "\n")
     end
-    write(file, "\n")
-    write(file, "Taxes parameters: $(taxes)" * "\n")
-    write(file, "Household parameters: $(hhpar)" * "\n")
-    write(file, "Firm parameters: $(fpar)" * "\n")
-    write(file, "Computational parameters: $(comp_params)" * "\n")
-
-    # Write grid details  
-    write(file, "Asset grid type: $(a_gtype)" * "\n") 
-    write(file, "Grid parameters: $(gpar)" * "\n")
+    return nothing
 end
-return nothing
+
+# Re-importing search results
+function ReadTaxSearchResults(filepath::String)
+    line = readline(filepath)
+    parts = split(line, ';')
+    return reshape(parts, 1, 3)  # 1×3 Array{String,2}
+end
+
+function ImportEquivalentTaxRegimes(root::String)
+    # Returns a DataFrame with columns: tax_regime, r, aggG, filepath
+    results = String[]
+
+    for (dir, _, files) in walkdir(root)
+        for f in files
+            if f == "search_results.txt"
+                push!(results, joinpath(dir, f))
+            end
+        end
+    end
+
+    df = DataFrame(tax_regime = Taxes[], r = Float64[], aggG = Float64[], filepath = String[])
+
+    for rpath in results
+        vals = split(readline(rpath), ';')
+        # Evaluate Taxes struct
+        tax = eval(Meta.parse(vals[1]))
+        push!(df, (tax, parse(Float64, vals[2]), parse(Float64, vals[3]), rpath))
+    end
+
+    return df
 end

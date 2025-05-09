@@ -24,7 +24,6 @@ using Infiltrator
 
 
 include("Parameters.jl")
-
 include("AuxiliaryFunctions.jl")
 include("Numerics.jl")
 include("HouseholdsFirmsGov.jl")
@@ -58,18 +57,17 @@ b_aggG = baseline.aggG[1]
 @info("Making grids...")
 
 # Define grid parameters
-gpar = GridParams(-1.000, 200.000, 100, # Assets
-                    0.0, 1, 50,    # Labor
+gpar = GridParams(a_min, 300.000, 400, # Assets
+                    0.0, 1, 150,    # Labor
                     length(rho_grid) # Productivity 
                     )
 
 # Assets
 a_gtype = "polynomial"
-a_grid = makeGrid(gpar.a_min, gpar.a_max, gpar.N_a; grid_type = a_gtype, pol_power = 3.5)
-# a_grid = makeGrid(gpar.a_min, gpar.a_max, gpar.N_a; grid_type = "log")
+a_grid = makeGrid(gpar.a_min, gpar.a_max, gpar.N_a; grid_type = a_gtype, pol_power = 4)
 
 # Labor
-l_grid = makeGrid(gpar.l_min, gpar.l_max, gpar.N_l)
+l_grid = makeGrid(gpar.l_min, gpar.l_max, gpar.N_l; grid_type = "labor-double")
 
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
@@ -81,7 +79,7 @@ l_grid = makeGrid(gpar.l_min, gpar.l_max, gpar.N_l)
 #--------------# Change in tau_y: solve for G-equivalent tau_c #--------------#
 
 # Fix number of different regimes to simulate
-n_sim = 2
+n_sim = 51
 
 # Create matrix of Taxes structs for each simulation
 regimes = [deepcopy(b_taxes) for t in 1:n_sim]
@@ -94,57 +92,15 @@ for t in 1:n_sim
     regimes[t].tau_y = round(b_taxes.tau_y * var_coeffs[t], digits = 5)
 end
 
-# # Clean tax_regime_search folder and create new subfolders
-# foreach(x -> rm(x; force=true, recursive=true), readdir("output/tax_regime_search", join=true))
-# eqr_paths = [joinpath("output/tax_regime_search", "eqr$i") for i in 1:n_sim]
-# eqr_res_paths = [joinpath("$(eqr_paths[i])", "model_results") for i in 1:n_sim]
-
-# # Create arrays to allocate results 
-# eq_regimes = deepcopy(regimes)
-# eq_rates = zeros(length(regimes))
-# eq_G = zeros(length(regimes))
-
-# # Find equivalent tax regime 
-# @info("Launching parallelised tax regime search...")
-
-# @elapsed @threads for i in 1:n_sim
-#     # Create new subdirectories 
-#     mkpath(eqr_paths[i])
-#     mkpath(eqr_res_paths[i])
-
-#     # Get relevant tax regime
-#     t_taxes = deepcopy(regimes[i])
-
-#     # Solve model 
-#     new_tau_c, new_r, eq_exp = TwoLevelEquilibriumNewton(
-#         a_grid, rho_grid, l_grid,
-#         gpar, hhpar, fpar, t_taxes,
-#         pi_rho, comp_params, b_aggG
-#         )  
-        
-#     # Assign to G-equivalent regime struct and vector
-#     t_taxes.tau_c = new_tau_c
-#     eq_regimes[i].tau_c = new_tau_c
-#     eq_rates[i] = new_r
-#     eq_G[i] = eq_exp
-
-#     # Print search results in .txt format
-#     filepath = joinpath("$(eqr_paths[i])", "search_results.txt")
-#     WriteTaxSearchResults(t_taxes, new_r, filepath::String)
-
-# end
-
-
 # Clean and prepare folders
 GC.gc()
-foreach(x -> rm(x; force=true, recursive=true), readdir("output/tax_regime_search", join=true))
-eqr_paths = [joinpath("output/tax_regime_search", "eqr$i") for i in 1:n_sim]
+foreach(x -> rm(x; force=true, recursive=true), readdir("output/equivalent_regimes", join=true))
+eqr_paths = [joinpath("output/equivalent_regimes", "eqr$i") for i in 1:n_sim]
 eqr_res_paths = [joinpath(eqr_paths[i], "model_results") for i in 1:n_sim]
 
 # Prepare containers
 eq_regimes = deepcopy(regimes)
 eq_rates = zeros(length(regimes))
-eq_G = zeros(length(regimes))
 
 # Launch tasks
 @info("Launching parallelised tax regime search...")
@@ -154,27 +110,60 @@ for i in 1:n_sim
     push!(tasks, Threads.@spawn begin
         @info "[Thread $(threadid())] Starting simulation #$i"
 
-        # Create output folders
-        mkpath(eqr_paths[i])
-        mkpath(eqr_res_paths[i])
-
-        # Run model
+        #-----# Run model #-----#
         t_taxes = deepcopy(regimes[i])
-        new_tau_c, new_r, eq_exp = TwoLevelEquilibriumNewton(
+        new_tau_c, r_eq, w_eq, stat_dist, valuef, policy_a, policy_l, policy_c = TwoLevelEquilibriumNewton(
             a_grid, rho_grid, l_grid,
             gpar, hhpar, fpar, t_taxes,
             pi_rho, comp_params, b_aggG
         )
 
-        # Save results
+        # Fix new taxes parameter
         t_taxes.tau_c = new_tau_c
+
+        #-----# Aggregate results #-----#
+        distC, distK, distH, distL,
+        distCtax, distWtax, distKtax, 
+        aggC, aggK, aggH, aggL, aggG, aggY,
+        aggT_c, aggT_y, aggT_k, 
+        excess_prod, bc_max_discrepancy = compute_aggregates_and_check(stat_dist, policy_a, policy_c, 
+                                                                            policy_l, rho_grid, a_grid, w_eq, r_eq, t_taxes;
+                                                                            raise_bc_error = false, 
+                                                                            raise_clearing_error = false);        
+
+        #-----# Save results #-----#
         eq_regimes[i].tau_c = new_tau_c
-        eq_rates[i] = new_r
-        eq_G[i] = eq_exp
+        eq_rates[i] = r_eq
+
+        # Create output folders
+        mkpath(eqr_paths[i])
+        mkpath(eqr_res_paths[i])
 
         # Save to file
+        # Tax regime search
         filepath = joinpath(eqr_paths[i], "search_results.txt")
-        WriteTaxSearchResults(t_taxes, new_r, eq_exp, filepath)
+        WriteTaxSearchResults(t_taxes, r_eq, aggG, filepath)
+        # Model results
+        items = Dict(
+            # Equilibrium 
+            :r => r, :w => w, :stat_dist => stat_dist,
+            # Policy rules
+            :policy_a => policy_a, :policy_l => policy_l, :policy_c => policy_c,
+            # Main distributions
+            :distC => distC, :distK => distK, :distH => distH, :distL => distL,
+            :distCtax => distCtax, :distWtax => distWtax, :distKtax => distKtax,
+            # Main aggregates
+            :aggC => aggC, :aggK => aggK, :aggH => aggH, :aggL => aggL, :aggG => aggG, :aggY => aggY,
+            :aggT_c => aggT_c, :aggT_y => aggT_y, :aggT_k => aggT_k,
+            # Accuracy stats
+            :excess_prod => excess_prod, :bc_max_discrepancy => bc_max_discrepancy[1],
+        )
+
+        for (name, mat) in items
+            filepath = joinpath(eqr_res_paths[i], string(name) * ".txt")
+            SaveMatrix(mat, filepath; overwrite=false)
+        end
+
     end)
 end
 
@@ -189,5 +178,5 @@ time_end = now()
 session_time = Dates.canonicalize(Dates.CompoundPeriod(Dates.DateTime(time_end) - Dates.DateTime(time_start)))
 timestamp_end = Dates.format(now(), "yyyymmdd-HH_MM_SS")
 
-print_tax_regime_search_session_details(regimes, b_taxes,
-                                        "./output/tax_regime_search/session_end_$(timestamp_end).txt")
+print_eq_regime_search_session_details(regimes, b_taxes,
+                                        "./output/equivalent_regimes/session_end_$(timestamp_end).txt")

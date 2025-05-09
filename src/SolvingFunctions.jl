@@ -458,7 +458,7 @@ end
 
 function SolveHouseholdProblem(a_grid, rho_grid, l_grid, gpar, w, r, 
                                taxes, hhpar, pi_rho, comp_params; 
-                               V_guess = V_guess)
+                               V_guess = V_guess, parallelise = false)
     """
     Solves the household problem via value function iteration using first-order conditions (FOC).
 
@@ -507,7 +507,7 @@ function SolveHouseholdProblem(a_grid, rho_grid, l_grid, gpar, w, r,
 
     @elapsed valuef, policy_a = intVFI_FOC_parallel(
         opt_u_itp, pi_rho, rho_grid, a_grid, max_a_prime, hhpar, gpar, comp_params;
-        V_guess = V_guess, parallelise = false
+        V_guess = V_guess, parallelise = parallelise
     )
 
     ########## SECTION 5 - RECONSTRUCT FINAL POLICY FUNCTIONS ##########
@@ -685,7 +685,7 @@ function ComputeEquilibrium_Newton(
     gpar, hhpar, fpar, taxes,
     pi_rho, comp_params; collect_errors = true, damping_weight = 1,
     prevent_Newton_jump = false, initial_r = nothing,
-    print_info = true
+    print_info = true, parallelise = true
 )
     #--- Initial guess for interest rate
     if isnothing(initial_r)
@@ -712,7 +712,8 @@ function ComputeEquilibrium_Newton(
         (_, _, _, _, _, valuef, policy_a, policy_l, policy_c) = SolveHouseholdProblem(
             a_grid, rho_grid, l_grid, gpar, w, r_mid, taxes,
             hhpar, pi_rho, comp_params; 
-            V_guess = zeros(gpar.N_rho, gpar.N_a)
+            V_guess = zeros(gpar.N_rho, gpar.N_a), 
+            parallelise = parallelise
         )
 
         ###### 1bis. Store value function for new guess
@@ -763,7 +764,8 @@ function ComputeEquilibrium_Newton(
         (_, _, _, _, _, _, policy_a_up, policy_l_up, _) = SolveHouseholdProblem(
             a_grid, rho_grid, l_grid, gpar, w_up, r_up, taxes,
             hhpar, pi_rho, comp_params;
-            V_guess = V_guess
+            V_guess = V_guess, 
+            parallelise = parallelise
         )
 
         stat_dist_up = stationary_distribution(
@@ -903,101 +905,6 @@ end
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
-
-# function JointEquilibriumNewton(
-#     a_grid, rho_grid, l_grid,
-#     gpar, hhpar, fpar, t_taxes,
-#     pi_rho, comp_params, G_target;
-#     adjust_par::Symbol = :tau_c,
-#     initial_r = 0.03, 
-#     tol = 1e-6,
-#     max_iter = 50
-# )   
-#     # Initialise new tax regime vector (copy base taxes)
-#     new_taxes = deepcopy(t_taxes)
-
-#     # Initial guesses for r and the tax parameter to adjust
-#     r_guess = initial_r
-#     tpar_guess = getproperty(new_taxes, adjust_par)
-
-#     for iter in 1:max_iter
-#         # Update the tax parameter before solving inner equilibrium
-#         setproperty!(new_taxes, adjust_par, tpar_guess)
-
-#         # === Inner GE equilibrium given r and tax ===
-#         r_eq, w_eq, stat_dist, _, policy_a, policy_l, policy_c = ComputeEquilibrium_Newton(
-#             a_grid, rho_grid, l_grid, gpar, hhpar, fpar, new_taxes,
-#             pi_rho, comp_params;
-#             initial_r = r_guess,
-#             collect_errors = false,
-#             print_info = false
-#         )
-
-
-#         # === Compute equilibrium residuals ===
-#         aggK = sum(stat_dist .* a_grid')
-#         effective_L = sum(stat_dist .* policy_l .* rho_grid)
-
-#         K_demand = ((fpar.alpha * fpar.tfp) / (r_eq + fpar.delta)) ^ (1 / (1 - fpar.alpha)) * effective_L
-#         F1 = K_demand - aggK  # capital market clearing condition
-
-#         aggG = compute_government_revenue(stat_dist, policy_c, policy_l, a_grid, rho_grid, r_eq, w_eq, new_taxes)
-#         F2 = G_target - aggG  # government budget target
-
-#         F = [F1, F2]
-
-#         # === Numerical Jacobian via finite differences ===
-#         J = zeros(2, 2)
-#         h = 1e-4
-#         for i in 1:2
-#             r_p, tpar_p = r_guess, tpar_guess
-#             if i == 1
-#                 r_p += h
-#             else
-#                 tpar_p += h
-#             end
-
-#             setproperty!(new_taxes, adjust_par, tpar_p)
-
-#             r_eq_p, w_eq_p, stat_dist_p, _, policy_a_p, policy_l_p, policy_c_p = ComputeEquilibrium_Newton(
-#                 a_grid, rho_grid, l_grid, gpar, hhpar, fpar, new_taxes,
-#                 pi_rho, comp_params;
-#                 damping_weight = 1.0,
-#                 initial_r = r_p,
-#                 collect_errors = false,
-#                 print_info = false
-#             )
-
-#             aggK_p = sum(stat_dist_p .* a_grid')
-#             effective_L_p = sum(stat_dist_p .* policy_l_p .* rho_grid)
-
-#             K_demand_p = ((fpar.alpha * fpar.tfp) / (r_eq_p + fpar.delta)) ^ (1 / (1 - fpar.alpha)) * effective_L_p
-#             F1_p = K_demand_p - aggK_p
-
-#             aggG_p = compute_government_revenue(stat_dist_p, policy_c_p, policy_l_p, a_grid, rho_grid, r_eq_p, w_eq_p, new_taxes)
-#             F2_p = G_target - aggG_p
-
-#             J[:, i] .= ([F1_p, F2_p] .- F) ./ h
-#         end
-
-#         # === Newton update step ===
-#         dx = J \ F
-#         r_guess -= dx[1]
-#         tpar_guess -= dx[2]
-
-#         println("2-Dim Newton Iter $iter: r = $(r_guess), $(adjust_par) = $(tpar_guess), norm(F) = $(norm(F))")
-
-#         if norm(F) < tol
-#             println("✅ 2-Dim Newton Converged: r = $(r_guess), $(adjust_par) = $(tpar_guess)")
-#             return tpar_guess, r_guess
-#         end
-#     end
-
-#     error("❌ Joint Newton did not converge.")
-# end
-
-
-
 function TwoLevelEquilibriumNewton(
     a_grid, rho_grid, l_grid,
     gpar, hhpar, fpar, t_taxes,
@@ -1006,7 +913,7 @@ function TwoLevelEquilibriumNewton(
     initial_r = 0.03, 
     tol = 1e-6,
     max_iter = 50,
-    regime_search_only = true
+    regime_search_only = false
 )   
     # Initialise new tax regime vector (copy base taxes)
     new_taxes = deepcopy(t_taxes)
@@ -1021,12 +928,13 @@ function TwoLevelEquilibriumNewton(
         setproperty!(new_taxes, adjust_par, tpar_guess)
 
         # === Inner Newton to find r ===
-        r_eq, w_eq, stat_dist, _, policy_a, policy_l, policy_c = ComputeEquilibrium_Newton(
+        r_eq, w_eq, stat_dist, valuef, policy_a, policy_l, policy_c = ComputeEquilibrium_Newton(
             a_grid, rho_grid, l_grid, gpar, hhpar, fpar, new_taxes,
             pi_rho, comp_params;
             initial_r = initial_r,
             collect_errors = false,
-            print_info = false
+            print_info = false,
+            parallelise = false
         )
 
         # === Compute government revenue and its gap ===
@@ -1036,9 +944,11 @@ function TwoLevelEquilibriumNewton(
         @info("[Thread $(Threads.threadid())] Outer Newton Iter $iter: $(adjust_par) = $(tpar_guess), G_error = $(G_error)")
 
         if abs(G_error) < tol
-            println("✅ Converged: r = $(r_eq), $(adjust_par) = $(tpar_guess)")
+            @info("[Thread $(Threads.threadid())] ✅ Converged: r = $(r_eq), $(adjust_par) = $(tpar_guess)")
             if regime_search_only
                 return tpar_guess, r_eq, aggG
+            else
+                return tpar_guess, r_eq, w_eq, stat_dist, valuef, policy_a, policy_l, policy_c
             end
         end
 
@@ -1046,12 +956,13 @@ function TwoLevelEquilibriumNewton(
         tpar_up = tpar_guess + h
         setproperty!(new_taxes, adjust_par, tpar_up)
 
-        r_up, w_up, stat_dist_up, _, policy_a_up, policy_l_up, policy_c_up = ComputeEquilibrium_Newton(
+        r_up, w_up, stat_dist_up, valuef_up, policy_a_up, policy_l_up, policy_c_up = ComputeEquilibrium_Newton(
             a_grid, rho_grid, l_grid, gpar, hhpar, fpar, new_taxes,
             pi_rho, comp_params;
             initial_r = initial_r,
             collect_errors = false,
-            print_info = false
+            print_info = false,
+            parallelise = false
         )
 
         aggG_up = compute_government_revenue(stat_dist_up, policy_c_up, policy_l_up, a_grid, rho_grid, r_up, w_up, new_taxes)
