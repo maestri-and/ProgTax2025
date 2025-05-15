@@ -839,8 +839,8 @@ function compute_aggregates_and_check(stat_dist, policy_a, policy_c, policy_l, r
     aggT_c = sum(distCtax)              # Net consumption tax revenue, after redistribution if any
 
     # Labor Tax
-    distYlabor_pretax = policy_l .* rho_grid .* w    # diag(rho_grid)*policy_l*w
-    labor_tax_policy = distYlabor_pretax .- taxes.lambda_y .* distYlabor_pretax .^ (1 - taxes.tau_y)
+    policy_l_incpt = policy_l .* rho_grid .* w    # diag(rho_grid)*policy_l*w
+    labor_tax_policy = policy_l_incpt .- taxes.lambda_y .* policy_l_incpt .^ (1 - taxes.tau_y)
     distWtax = stat_dist .* labor_tax_policy
     aggT_y = sum(distWtax)                    # Net labor tax revenue, after redistribution if any
 
@@ -864,7 +864,7 @@ function compute_aggregates_and_check(stat_dist, policy_a, policy_c, policy_l, r
     end
 
     # Doublecheck budget constraint holding for optimal policies - Get max discrepancy
-    bc_max_discrepancy = findmax(abs.(policy_c .+ consumption_tax_policy .- (distYlabor_pretax .- labor_tax_policy .+ ((1 + (1 - taxes.tau_k)r) .* (ones(7, 1) * a_grid')) .- policy_a)))
+    bc_max_discrepancy = findmax(abs.(policy_c .+ consumption_tax_policy .- (policy_l_incpt .- labor_tax_policy .+ ((1 + (1 - taxes.tau_k)r) .* (ones(7, 1) * a_grid')) .- policy_a)))
     if bc_max_discrepancy[1] > 0.01 && raise_bc_error
         @error("Max budget constraint discrepancy is larger than 0.01! Doublecheck accuracy! $bc_max_discrepancy")
         error("Max budget constraint discrepancy is larger than 0.01! Doublecheck accuracy! $bc_max_discrepancy")
@@ -886,8 +886,8 @@ function compute_government_revenue(stat_dist, policy_c, policy_l, a_grid, rho_g
     aggT_c = sum(distCtax)              # Net consumption tax revenue, after redistribution if any
 
     # Labor Tax
-    distYlabor_pretax = policy_l .* rho_grid .* w    # diag(rho_grid)*policy_l*w
-    labor_tax_policy = distYlabor_pretax .- taxes.lambda_y .* distYlabor_pretax .^ (1 - taxes.tau_y)
+    policy_l_incpt = policy_l .* rho_grid .* w    # diag(rho_grid)*policy_l*w
+    labor_tax_policy = policy_l_incpt .- taxes.lambda_y .* policy_l_incpt .^ (1 - taxes.tau_y)
     distWtax = stat_dist .* labor_tax_policy
     aggT_y = sum(distWtax)                    # Net labor tax revenue, after redistribution if any
 

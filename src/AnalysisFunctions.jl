@@ -12,15 +12,86 @@
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#--------------------# 1. GENERIC DISTRIBUTION FUNCTIONS #--------------------#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+
+function build_density_dict(df::DataFrame, dist_sym::Symbol, idx_low::Int, idx_mid::Int, idx_high::Int)
+    # Returns density for low, middle and high scenario for selected distribution
+    # Extract 3D distribution from the DataFrame
+    dist = df[!, dist_sym]
+
+    # Pull out the three selected slices
+    dist_low = dist[idx_low]
+    dist_mid = dist[idx_mid]
+    dist_high = dist[idx_high]
+
+    # Aggregate over productivity (dim = 1), normalize to get densities over wealth
+    dens_low = vec(sum(dist_low, dims = 1) ./ sum(dist_low))
+    dens_mid = vec(sum(dist_mid, dims = 1) ./ sum(dist_mid))
+    dens_high = vec(sum(dist_high, dims = 1) ./ sum(dist_high))
+
+    return Dict(:low => dens_low, :mid => dens_mid, :high => dens_high)
+end
+
+function extract_low_mid_high(df, col_sym;
+                              idx_low = idx_low_tau_y,
+                              idx_mid = idx_middle,
+                              idx_high = idx_high_tau_y,
+                              table_string = nothing,
+                              as_percentage = false,
+                              normalise = "no"
+                              )
+    # This function extracts low, mid and high scenario values for selected aggregate
+    # And outputs it to add it to the dataframe collecting aggregate results
+    # Extract column from the DataFrame
+    agg = df[!, col_sym]
+
+    # Pull out the three selected values
+    col_low = agg[idx_low]
+    col_mid = agg[idx_mid]
+    col_high = agg[idx_high]
+
+    # Normalise if desired
+    if normalise == "num"
+        col_low = col_low / col_mid
+        col_high = col_high / col_mid
+        col_mid = col_mid / col_mid
+    elseif normalise == "var"
+        col_low = col_low / col_mid - 1
+        col_high = col_high / col_mid - 1
+        col_mid = col_mid / col_mid - 1
+    else
+        nothing 
+    end
+
+    # Transform into percentages and round if desired
+    if as_percentage
+        col_low = round(col_low * 100, digits = 2)
+        col_mid = round(col_mid * 100, digits = 2)
+        col_high = round(col_high * 100, digits = 2)
+    end
+
+    # Create vector 
+    table_string = isnothing(table_string) ? string(col_sym) : table_string
+    table_row = [table_string, col_low, col_mid, col_high]
+
+    return table_row
+end
+
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
-#-----------------------------# 1. DISTRIBUTIONS #-----------------------------#
+#------------------------# 2. SPECIFIC DISTRIBUTIONS #------------------------#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
 
-#---------------------------------# A. WEALTH #--------------------------------#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#---------------------------------# A. WEALTH #-------------------------------#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
 
 function compute_wealth_distribution_stats(stat_dist, a_grid; 
@@ -113,11 +184,11 @@ function compute_wealth_distribution_stats(stat_dist, a_grid;
     return dist_stats
 end
 
-
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #---------------------------------# B. INCOME #--------------------------------#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
-
-function analyze_income_dist(distYlabor_pretax::Matrix{Float64},
+function analyze_income_dist(policy_l_incpt::Matrix{Float64},
                                      stat_dist::Matrix{Float64};
                                      n_deciles::Int = 10,
                                      plot::Bool = true,
@@ -125,7 +196,7 @@ function analyze_income_dist(distYlabor_pretax::Matrix{Float64},
                                      analyse_tax_rates::Bool = true)
 
     # Flatten inputs
-    incomes = vec(distYlabor_pretax)
+    incomes = vec(policy_l_incpt)
     masses = vec(stat_dist)
 
     # Sort by income
@@ -190,16 +261,16 @@ function analyze_income_dist(distYlabor_pretax::Matrix{Float64},
 end
 
 
-function compute_income_distribution_stats(stat_dist, distYlabor_pretax; 
+function compute_income_distribution_stats(stat_dist, policy_l_incpt; 
     cutoffs = [0.5, (0.5, 0.9), -0.1])
     # Flatten arrays
-    weights = vec(stat_dist)
-    incomes = vec(distYlabor_pretax)
+    pop_weights = vec(stat_dist)
+    incomes = vec(policy_l_incpt)
 
     # Sort by income
     sorted_idx = sortperm(incomes)
     sorted_incomes = incomes[sorted_idx]
-    sorted_weights = weights[sorted_idx]
+    sorted_weights = pop_weights[sorted_idx]
 
     # Normalize weights
     sorted_weights ./= sum(sorted_weights)
@@ -278,11 +349,12 @@ function compute_income_distribution_stats(stat_dist, distYlabor_pretax;
     return dist_stats
 end
 
-function compute_average_income_stats(stat_dist, distYlabor_pretax; 
+function compute_average_income_stats(stat_dist, policy_l_incpt; 
     cutoffs = [0.5, 0.9, -0.1])
+    # This function returns average income per population group
     # Flatten arrays
     weights = vec(stat_dist)
-    incomes = vec(distYlabor_pretax)
+    incomes = vec(policy_l_incpt)
 
     # Sort by income
     sorted_idx = sortperm(incomes)
@@ -338,9 +410,9 @@ function compute_average_income_stats(stat_dist, distYlabor_pretax;
     return dist_stats
 end
 
-
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #------------------------------# C. CONSUMPTION #-----------------------------#
-
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
 function analyze_consumption_dist(policy_c::Matrix{Float64},
     stat_dist::Matrix{Float64};
@@ -350,7 +422,7 @@ function analyze_consumption_dist(policy_c::Matrix{Float64},
     analyse_tax_rates::Bool = true)
 
     # Flatten inputs
-    incomes = vec(distYlabor_pretax)
+    incomes = vec(policy_l_incpt)
     masses = vec(stat_dist)
 
     # Sort by income
@@ -414,22 +486,29 @@ function analyze_consumption_dist(policy_c::Matrix{Float64},
     end
 end
 
-
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #--------------------------------# D. TAXATION #-------------------------------#
-
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
 function compute_average_rate_stats(stat_dist, labor_tax_policy;
-                                    distYlabor_pretax = distYlabor_pretax, 
-                                    cutoffs = [1, 0.5, 0.9, -0.1])
+                                    policy_l_incpt = policy_l_incpt, 
+                                    cutoffs = [0.5, 0.9, -0.1])
     # Flatten arrays
-    weights = vec(stat_dist)
+    pop_weights = vec(stat_dist)
     taxes = vec(labor_tax_policy)
-    labor_tax_rate_policy = vec(labor_tax_policy ./ distYlabor_pretax)
+    labor_tax_rate_policy = vec(labor_tax_policy ./ policy_l_incpt)
+
+    # Filter out NaNs from all vectors
+    valid = .!isnan.(pop_weights) .& .!isnan.(taxes) .& .!isnan.(labor_tax_rate_policy)
+
+    pop_weights = pop_weights[valid]
+    taxes = taxes[valid]
+    labor_tax_rate_policy = labor_tax_rate_policy[valid]
 
     # Sort by income
     sorted_idx = sortperm(taxes)
     sorted_taxes = taxes[sorted_idx]
-    sorted_weights = weights[sorted_idx]
+    sorted_weights = pop_weights[sorted_idx]
     sorted_rates = labor_tax_rate_policy[sorted_idx]
 
     # Normalize weights

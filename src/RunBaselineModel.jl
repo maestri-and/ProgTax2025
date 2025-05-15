@@ -53,7 +53,7 @@ timestamp_start = Dates.format(now(), "yyyymmdd-HH_MM_SS")
 @info("Making grids...")
 
 # Define grid parameters
-gpar = GridParams(a_min, 300.000, 300, # Assets
+gpar = GridParams(a_min, 300.000, 400, # Assets
                     0.0, 1, 150,    # Labor
                     length(rho_grid) # Productivity 
                     )
@@ -63,7 +63,7 @@ a_gtype = "polynomial"
 a_grid = makeGrid(gpar.a_min, gpar.a_max, gpar.N_a; grid_type = a_gtype, pol_power = 4)
 
 # Labor
-l_grid = makeGrid(gpar.l_min, gpar.l_max, gpar.N_l)
+l_grid = makeGrid(gpar.l_min, gpar.l_max, gpar.N_l; grid_type = "labor-double")
 
 # Labor productivity - Defined in Parameters.jl
 # Extract stable distribution from transition matrix
@@ -129,13 +129,15 @@ excess_prod, bc_max_discrepancy = compute_aggregates_and_check(stat_dist, policy
 # valuef_int, policy_a_int, policy_c_int, policy_l_int = interpolate_policy_funs(valuef, policy_a, policy_c, policy_l, rho_grid, a_grid);
 
 # Plot policy functions if necessary
-# plot_household_policies(valuef, policy_a, policy_l, policy_c,
-#                                  a_grid, rho_grid, taxes;
-#                                  plot_types = ["value", "assets", "labor", "consumption"],
-#                                  save_plots = false)
+plot_household_policies(valuef, policy_a, policy_l, policy_c,
+                                 a_grid, rho_grid, taxes;
+                                 plot_types = ["value", "assets", "labor", "consumption"],
+                                 save_plots = false)
 
 # 3D plot: labor policy function
 # plot_policy_function_3d(policy_l, a_grid, rho_grid; policy_type="labor")
+# plot_policy_function(policy_l, a_grid, rho_grid; policy_type="labor")
+
 
 # Plot stationary distribution 
 # plot_heatmap_stationary_distribution(stat_dist; taxes=taxes)
@@ -179,30 +181,30 @@ gini_inc_pretax = compute_gini(distL * w, stat_dist, plot_curve = false)
 # gini_inc_aftertax = compute_gini(distL * w - distWtax, stat_dist, plot_curve = true)
 
 # Model: gross labor income distribution 
-distYlabor_pretax = policy_l .* rho_grid .* w    # diag(ρ_grid)*policy_l*w
-labor_tax_policy = distYlabor_pretax .- taxes.lambda_y .* distYlabor_pretax .^ (1 - taxes.tau_y)
+policy_l_incpt = policy_l .* rho_grid .* w    # diag(ρ_grid)*policy_l*w
+labor_tax_policy = policy_l_incpt .- taxes.lambda_y .* policy_l_incpt .^ (1 - taxes.tau_y)
 
-labor_tax_rate_policy = labor_tax_policy ./ distYlabor_pretax 
+labor_tax_rate_policy = labor_tax_policy ./ policy_l_incpt 
 
 # Compute effective average rate per income decile
 # decile_shares, labor_taxes_collected, 
-# Wtax_avg_rates, decile_cutoffs = analyze_income_dist(distYlabor_pretax, stat_dist;
+# Wtax_avg_rates, decile_cutoffs = analyze_income_dist(policy_l_incpt, stat_dist;
 #                                                             n_deciles = 10)
 
 # Compute gross income distribution and average income stats
-distYlabor_stats = compute_income_distribution_stats(stat_dist, distYlabor_pretax) 
-plot_dist_stats_bar(distYlabor_stats, dist_type = "ptinc")  
+policy_inc_labor_stats = compute_income_distribution_stats(stat_dist, policy_l_incpt) 
+plot_dist_stats_bar(policy_inc_labor_stats, dist_type = "ptinc")  
 
-avg_income_stats = compute_average_income_stats(stat_dist, distYlabor_pretax; 
+avg_income_stats = compute_average_income_stats(stat_dist, policy_l_incpt; 
     cutoffs = [0.5, 0.9, -0.1])
 
 t10tob50_ratio = avg_income_stats[3][2] / avg_income_stats[1][2]
 t10tob90_ratio = avg_income_stats[3][2] / avg_income_stats[2][2]
 
 # Compute average effective rates by population decile
-avg_rates = compute_average_rate_stats(stat_dist, labor_tax_policy)
-aetr = sum(labor_tax_rate_policy .* stat_dist)
-b50t10aetr = round.([avg_rates[1][2], avg_rates[3][2]], digits=3)
+avg_rates_Wtax = compute_average_rate_stats(stat_dist, labor_tax_policy)
+aetr_Wtax = sum(labor_tax_rate_policy .* stat_dist)
+b50t10aetr_Wtax = round.([avg_rates_Wtax[1][2], avg_rates_Wtax[3][2]], digits=3)
 
 #------------------------------# 4. CONSUMPTION #-----------------------------#
 
@@ -240,7 +242,7 @@ println("Share of revenue from consumption tax: $shareCtax")
 println("Share of revenue from capital return tax: $shareKtax")
 println("Kakwani index for consumption tax: $kakwani_cons_tax")
 println("Rates for consumption tax ranging between: $cons_tax_rates_min_max")
-println("AETRs for labor income tax ranging between: $b50t10aetr")
+println("AETRs for labor income tax ranging between: $b50t10aetr_Wtax")
 
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
@@ -293,7 +295,7 @@ items = Dict(
 
 for (name, mat) in items
     filepath = "./output/baseline/model_results/" * string(name) * ".txt"
-    SaveMatrix(mat, filepath; overwrite=false)
+    SaveMatrix(mat, filepath; overwrite=true)
 end
 
 #---------------------------# Export session details #-------------------------# 

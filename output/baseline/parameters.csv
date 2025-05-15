@@ -16,7 +16,7 @@ taxes.tau_c,0.0343
 taxes.tau_k,0.352
 gpar.a_min,-1.138506930429756
 gpar.a_max,300.0
-gpar.N_a,300.0
+gpar.N_a,400.0
 gpar.l_min,0.0
 gpar.l_max,1.0
 gpar.N_l,150.0

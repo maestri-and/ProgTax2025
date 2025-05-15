@@ -1,7 +1,13 @@
+BASELINE MODEL SIMULATION - DETAILS
+
+Grids - Details
 Asset grid type: polynomial
-Grid parameters: GridParams(-1.138506930429756, 300.0, 300, 0.0, 1.0, 150, 7)
+Grid parameters: GridParams(-1.138506930429756, 300.0, 400, 0.0, 1.0, 150, 7)
+
+Structural Parameters - Details
 Taxes parameters: Taxes(0.7305, 0.1875, 0.85, 0.0343, 0.352)
 Household parameters: HHParams(0.9675, 1.5, 85.0, 2.5)
 Firm parameters: FirmParams(0.3333333333333333, 0.084, 1.0)
 Computational parameters: CompParams(3000, 0.0001, 500, 1.0e-6)
-Time spent: 20 minutes, 50 seconds, 324 milliseconds
+
+Time spent: 46 minutes, 33 seconds, 254 milliseconds

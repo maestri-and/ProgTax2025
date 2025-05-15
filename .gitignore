@@ -3,6 +3,8 @@
 src/refs/    
 # Working code
 working_code.jl
+temp.jl
+
 # Preliminary outputs
 output/preliminary/local/
 output/temp/

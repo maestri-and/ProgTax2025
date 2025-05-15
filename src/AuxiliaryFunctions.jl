@@ -106,15 +106,23 @@ function print_simulation_details(filepath::String;
     # Write file
     open(filepath, "w") do file
         
+        # Headline
+        write(file, "BASELINE MODEL SIMULATION - DETAILS" * "\n")
+        write(file, "\n")
+
         # Write grid details  
+        write(file, "Grids - Details" * "\n")
         write(file, "Asset grid type: $(a_gtype)" * "\n") 
         write(file, "Grid parameters: $(gpar)" * "\n")
+        write(file, "\n")
 
         # Write parameters details
+        write(file, "Structural Parameters - Details" * "\n")
         write(file, "Taxes parameters: $(taxes)" * "\n")
         write(file, "Household parameters: $(hhpar)" * "\n")
         write(file, "Firm parameters: $(fpar)" * "\n")
         write(file, "Computational parameters: $(comp_params)" * "\n")
+        write(file, "\n")
         
         # Write time details
         write(file, "Time spent: $(session_time)")
@@ -264,7 +272,7 @@ function read_results_from_txt(filepath::String)
 end
 
 # Build a dataframe with all model results by tax struct
-function get_model_results(folderpath::String; ignorefiles = ["placeholder.txt"], 
+function get_model_results(folderpath::String; ignorefiles = ["placeholder.txt", "search_results.txt"], 
                            merging_keys = [:lambda_y, :tau_y, :lambda_c, :tau_c, :tau_k])
     # This function constructs a full DataFrame from .txt files stored
     # in the folder containing model results 
@@ -313,7 +321,7 @@ function WriteTaxSearchResults(eq_taxes, eq_r, eq_exp, filepath::String)
     return nothing
 end
 
-function print_eq_regime_search_session_details(regimes, taxes, filepath::String; 
+function print_eq_regime_search_session_details(regimes, eq_rates, taxes, filepath::String; 
     session_time = session_time,
     grid_parameters = gpar,
     asset_grid_type = a_gtype,
@@ -337,11 +345,11 @@ function print_eq_regime_search_session_details(regimes, taxes, filepath::String
         write(file, "Target regime: $(taxes)" * "\n")
         l = length(regimes)
         write(file, "Found $l equivalent regimes:" * "\n")
-        for reg in regimes
-            write(file, "$reg" * "\n")
+        for i in 1:l
+            write(file, "$(regimes[i]);$(eq_rates[i])\n")
         end
         write(file, "\n")
-        write(file, "Taxes parameters: $(taxes)" * "\n")
+        write(file, "Baseline taxes parameters: $(taxes)" * "\n")
         write(file, "Household parameters: $(hhpar)" * "\n")
         write(file, "Firm parameters: $(fpar)" * "\n")
         write(file, "Computational parameters: $(comp_params)" * "\n")

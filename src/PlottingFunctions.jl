@@ -10,7 +10,81 @@
 using StatsBase
 using Plots
 using CairoMakie # Switch to GLMakie for interactive plots
+using ColorSchemes
+using GeometryBasics
+using DelaunayTriangulation
 using LaTeXStrings
+
+# Setting plots theme
+# Plots.jl
+# default(
+#     # Base font
+#     fontfamily = "Helvetica",
+
+#     # Font sizes for labels and ticks
+#     guidefont = font(14),      # axis titles
+#     tickfont  = font(12),      # axis ticks
+#     legendfont = font(12),     # legend text
+
+#     # Plot size
+#     # size = (800, 600),
+
+#     # Grid and frame appearance
+#     grid = true,
+#     gridalpha = 0.1,
+#     gridlinewidth = 1,
+#     framestyle = :box,
+#     foreground_color_subplot = :transparent,
+
+#     # Background
+#     background_color = :white,
+
+#     # Legend appearance
+#     legend_background_color = :white,
+#     legend_foreground_color = :black  # sets border same as background = invisible
+# )
+
+# CairoMakie
+CairoMakie.set_theme!(
+    # Set base font and size
+    # Default font - see them with Makie.theme(:fonts)
+    fonts = (
+        regular = "TeX Gyre Heros Makie", # TeX Gyre Heros Makie
+        italic = "TeX Gyre Heros Makie Italic", # TeX Gyre Heros Makie Italic
+        bold = "TeX Gyre Heros Makie Bold", # TeX Gyre Heros Makie Bold
+        bold_italic = "TeX Gyre Heros Makie Bold Italic" # TeX Gyre Heros Makie Bold Italic
+    ), 
+    fontsize = 14,
+
+    # Customize axis appearance
+    Axis = (
+        titlegap = 10,               # space between axis and title
+        titlesize = 16,              # font size of axis titles
+        xlabelsize = 14,             # x-axis label font
+        ylabelsize = 14,             # y-axis label font
+        xticklabelsize = 12,         # font size of x ticks
+        yticklabelsize = 12,         # font size of y ticks
+        backgroundcolor = :transparent,  # no background fill
+        spinecolor = :gray70,        # subtle axis box color
+        spinewidth = 1.5,            # thickness of box lines
+        gridcolor = :gray90,         # light grid lines
+        gridwidth = 1,               # grid line thickness
+    ),
+
+    # Customize legend appearance
+    Legend = (
+        fontsize = 10,
+        backgroundcolor = :white,
+        framevisible = true,
+    ),
+
+    # Customize colorbar appearance
+    Colorbar = (
+        labelfontsize = 12,
+        ticklabelsize = 10,
+    )
+)
+
 
 
 
@@ -409,7 +483,7 @@ function plot_policy_function(policy_data, a_grid, rho_grid; policy_type="assets
     elseif isa(policy_data, AbstractMatrix)
         # Raw matrix input
         for i_rho in 1:length(rho_grid)
-            Plots.plot!(p, a_grid, policy_data[i_rho, :], label="ρ = $(rho_grid[i_rho])", 
+            Plots.plot!(p, a_grid, policy_data[i_rho, :], label="ρ = $(round(rho_grid[i_rho], digits=4))", 
                      lw=2, title = tax_subtitle)
         end
 
@@ -421,28 +495,199 @@ function plot_policy_function(policy_data, a_grid, rho_grid; policy_type="assets
     return Plots.plot(suptitle, p, layout = @layout([A{0.01h}; B]))
 end
 
+    function plot_household_policies(valuef, policy_a_int, policy_l_int, policy_c,
+                                    a_grid, rho_grid, taxes;
+                                    plot_types = ["value", "assets", "labor", "consumption"],
+                                    save_plots = false)
+
+        """
+        Plots household value and policy functions.
+
+        Args:
+            valuef         : Value function matrix (ρ × a)
+            policy_a_int   : Interpolated asset policy (Spline2D)
+            policy_l_int   : Interpolated labor policy (Spline2D)
+            policy_c       : Consumption policy matrix (ρ × a)
+            a_grid         : Asset grid
+            rho_grid       : Productivity grid
+            taxes          : Struct containing tax parameters
+            plot_types     : Vector of strings selecting which plots to show
+            save_plots     : If true, saves plots to predefined file paths
+        """
+
+        if "value" in plot_types
+            p_val = plot_value_function(valuef, a_grid, rho_grid)
+            display(p_val)
+            if save_plots
+                savefig(p_val, "output/preliminary/policy_funs/cont/value_function_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
+            end
+        end
+
+        if "assets" in plot_types
+            p_a = plot_policy_function(policy_a_int, a_grid, rho_grid, policy_type = "assets")
+            display(p_a)
+            if save_plots
+                savefig(p_a, "output/preliminary/policy_funs/cont/asset_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
+            end
+        end
+
+        if "labor" in plot_types
+            p_l = plot_policy_function(policy_l_int, a_grid, rho_grid, policy_type = "labor")
+            display(p_l)
+            if save_plots
+                savefig(p_l, "output/preliminary/policy_funs/cont/labor_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
+            end
+        end
+
+        if "consumption" in plot_types
+            p_c = plot_policy_function(policy_c, a_grid, rho_grid, policy_type = "consumption")
+            display(p_c)
+            if save_plots
+                savefig(p_c, "output/preliminary/policy_funs/cont/cons_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
+            end
+        end
+    end
+
+###############################################################################
+################## 4b. PLOTTING VALUE AND POLICY FUNCTIONS ####################
+################################ CAIROMAKIE.JL ################################
+###############################################################################
+
+function plot_value_function(V_new, a_grid, rho_grid;
+    taxes = nothing,
+    cmap = :Spectral_7,
+    reverse_palette = false
+)
+
+    # Set plot labels and layout
+    title_text = "Value Function by Productivity Level"
+    ylabel_text = "Value Function V(a, ρ)"
+    leg_pos = :rt
+
+    fig = CairoMakie.Figure(size = (800, 500))
+    ax = CairoMakie.Axis(fig[1, 1],
+        xlabel = "Assets (a)",
+        ylabel = ylabel_text,
+        title = title_text,
+        titlesize = 20,
+        xlabelsize = 14,
+        ylabelsize = 14
+    )
+
+    # Select colors from the colormap
+    colors = reverse_palette ?
+        reverse(ColorSchemes.colorschemes[cmap].colors) :
+        ColorSchemes.colorschemes[cmap].colors
+
+    colors = colors[1:length(rho_grid)]
+
+    # Plot each line interpolated over a_dense
+    a_dense = range(minimum(a_grid), stop = maximum(a_grid), length = 200)
+
+    for (i, rho_val) in enumerate(rho_grid)
+        itp = interpolate((a_grid,), V_new[i, :], Gridded(Linear()))
+        V_interp = [itp(a) for a in a_dense]
+
+        CairoMakie.lines!(ax, a_dense, V_interp;
+            label = "ρ = $(round(rho_val, digits=4))",
+            linewidth = 2,
+            color = colors[i]
+        )
+    end
+
+    CairoMakie.axislegend(ax, position = leg_pos)
+
+    return fig
+end
+
+
+function plot_policy_function(policy_data, a_grid, rho_grid;
+    policy_type = "assets",
+    taxes = nothing,
+    cmap = :Spectral_7,  # Use any ColorSchemes.jl-compatible symbol
+    reverse_palette = false
+)
+
+    titles = Dict(
+        "assets"      => ("Policy Function for Assets", "Future Assets (a')", :rt),
+        "labor"       => ("Policy Function for Labor", "Labor Supplied (l)", :rt),
+        "consumption" => ("Policy Function for Consumption", "Consumption (c)", :lt)
+    )
+
+    haskey(titles, policy_type) || error("Invalid policy_type. Choose 'assets', 'labor', or 'consumption'.")
+    title_text, ylabel_text, leg_pos = titles[policy_type]
+
+    fig = CairoMakie.Figure(soze = (800, 500))
+    ax = CairoMakie.Axis(fig[1, 1],
+        xlabel = "Current Assets (a)",
+        ylabel = ylabel_text,
+        title = title_text,
+        titlesize = 20,
+        xlabelsize = 14,
+        ylabelsize = 14
+    )
+
+    # Get colors from the colormap
+    if !reverse_palette
+        colors = ColorSchemes.colorschemes[cmap].colors
+    else
+        colors = reverse(ColorSchemes.colorschemes[cmap].colors)
+    end
+
+    colors = colors[1:length(rho_grid)]
+
+
+    a_dense = range(minimum(a_grid), stop = maximum(a_grid), length = 200)
+
+    if isa(policy_data, AbstractMatrix)
+        for (i, rho_val) in enumerate(rho_grid)
+            CairoMakie.lines!(ax, a_grid, policy_data[i, :],
+                label = "ρ = $(round(rho_val, digits=4))", linewidth = 2, color = colors[i])
+        end
+
+    elseif policy_data isa Function || policy_data isa Interpolations.GriddedInterpolation
+        for (i, rho_val) in enumerate(rho_grid)
+            vals = [policy_data(rho_val, a) for a in a_dense]
+            CairoMakie.lines!(ax, a_dense, vals,
+                label = "ρ = $(round(rho_val, digits=4))", linewidth = 2, color = colors[i])
+        end
+
+    else
+        error("Invalid input type for policy_data.")
+    end
+
+    CairoMakie.axislegend(ax, position = leg_pos)
+
+    return fig
+end
+
 function plot_household_policies(valuef, policy_a_int, policy_l_int, policy_c,
                                  a_grid, rho_grid, taxes;
                                  plot_types = ["value", "assets", "labor", "consumption"],
-                                 save_plots = false)
+                                 save_plots = false,
+                                 cmap = :Spectral_7,
+                                 reverse_palette = false)
 
     """
-    Plots household value and policy functions.
+    Plots household value and policy functions using CairoMakie.
 
     Args:
-        valuef         : Value function matrix (ρ × a)
-        policy_a_int   : Interpolated asset policy (Spline2D)
-        policy_l_int   : Interpolated labor policy (Spline2D)
-        policy_c       : Consumption policy matrix (ρ × a)
-        a_grid         : Asset grid
-        rho_grid       : Productivity grid
-        taxes          : Struct containing tax parameters
-        plot_types     : Vector of strings selecting which plots to show
-        save_plots     : If true, saves plots to predefined file paths
+        valuef           : Value function matrix (ρ × a)
+        policy_a_int     : Interpolated asset policy (Spline2D)
+        policy_l_int     : Interpolated labor policy (Spline2D)
+        policy_c         : Consumption policy matrix (ρ × a)
+        a_grid           : Asset grid
+        rho_grid         : Productivity grid
+        taxes            : Struct with tax parameters
+        plot_types       : Vector of strings selecting which plots to show
+        save_plots       : If true, saves plots to predefined file paths
+        cmap             : Symbol for color palette (e.g., :Set1_9)
+        reverse_palette  : Whether to reverse the color palette
     """
 
     if "value" in plot_types
-        p_val = plot_value_function(valuef, a_grid, rho_grid)
+        p_val = plot_value_function(valuef, a_grid, rho_grid;
+            taxes = taxes, cmap = cmap, reverse_palette = reverse_palette)
         display(p_val)
         if save_plots
             savefig(p_val, "output/preliminary/policy_funs/cont/value_function_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
@@ -450,7 +695,8 @@ function plot_household_policies(valuef, policy_a_int, policy_l_int, policy_c,
     end
 
     if "assets" in plot_types
-        p_a = plot_policy_function(policy_a_int, a_grid, rho_grid, policy_type = "assets")
+        p_a = plot_policy_function(policy_a_int, a_grid, rho_grid;
+            policy_type = "assets", taxes = taxes, cmap = cmap, reverse_palette = reverse_palette)
         display(p_a)
         if save_plots
             savefig(p_a, "output/preliminary/policy_funs/cont/asset_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
@@ -458,7 +704,8 @@ function plot_household_policies(valuef, policy_a_int, policy_l_int, policy_c,
     end
 
     if "labor" in plot_types
-        p_l = plot_policy_function(policy_l_int, a_grid, rho_grid, policy_type = "labor")
+        p_l = plot_policy_function(policy_l_int, a_grid, rho_grid;
+            policy_type = "labor", taxes = taxes, cmap = cmap, reverse_palette = reverse_palette)
         display(p_l)
         if save_plots
             savefig(p_l, "output/preliminary/policy_funs/cont/labor_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
@@ -466,7 +713,8 @@ function plot_household_policies(valuef, policy_a_int, policy_l_int, policy_c,
     end
 
     if "consumption" in plot_types
-        p_c = plot_policy_function(policy_c, a_grid, rho_grid, policy_type = "consumption")
+        p_c = plot_policy_function(policy_c, a_grid, rho_grid;
+            policy_type = "consumption", taxes = taxes, cmap = cmap, reverse_palette = reverse_palette)
         display(p_c)
         if save_plots
             savefig(p_c, "output/preliminary/policy_funs/cont/cons_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
@@ -474,8 +722,8 @@ function plot_household_policies(valuef, policy_a_int, policy_l_int, policy_c,
     end
 end
 
-# 3D plot
 
+# 3D plot
 function plot_policy_function_3d(policy_data, a_grid, rho_grid; policy_type="labor", taxes=taxes)
     titles = Dict(
         "assets"      => ("Asset Policy Function", "Future Assets"),
@@ -671,10 +919,12 @@ return fig
 end
 
 ###############################################################################
+###############################################################################
 ############# 6. PLOTTING AGGREGATES BY PROGRESSIVITY PARAMETERS ##############
 ###############################################################################
+###############################################################################
 
-
+# In case of regular grid, plot surface
 function plot_aggregate_surface(aggtoplot_vec, tau_c_vec, tau_y_vec;
     xlabel="Consumption Tax Progressivity", 
     ylabel="Labor Tax Progressivity",
@@ -723,3 +973,97 @@ function plot_aggregate_surface(aggtoplot_vec, tau_c_vec, tau_y_vec;
 
     return(fig)
 end    
+
+# In case of irregular grid / progressivity rebalancing
+function plot_3d_line(ss)
+    fig = Figure()
+    ax = Axis3(fig[1, 1], xlabel="τ_y", ylabel="τ_c", zlabel="aggC")
+    CairoMakie.lines!(ax, ss.tau_y, ss.tau_c, ss.aggC, linewidth=2, color=:blue)
+    CairoMakie.scatter!(ax, ss.tau_y, ss.tau_c, ss.aggC, color=:red, markersize=10)
+    return fig
+end
+
+function plot_colored_scatter(x_vec, color_vec, y_vec;
+    xlabel = LaTeXString("\\tau_y"), ylabel = "Aggregate Consumption", colorlabel =  LaTeXString("\\tau_c"),
+    cmap = :plasma, interpolate = true, adjust_color_legend = true)
+
+    fig = CairoMakie.Figure()
+    ax = CairoMakie.Axis(fig[1, 1], xlabel = xlabel, ylabel = ylabel)
+
+    # Optional interpolation line between sorted x and y
+    if interpolate
+        sort_idx = sortperm(x_vec)
+        CairoMakie.lines!(ax, x_vec[sort_idx], y_vec[sort_idx], color = :gray)
+    end
+
+    # Scatter with color mapped from color_vec
+    colorrange = adjust_color_legend ? extrema(color_vec) : (0.0, 1.0)
+    CairoMakie.scatter!(ax, x_vec, y_vec;
+        color = color_vec, colormap = cmap, colorrange = colorrange, markersize = 8)
+
+    # Colorbar with proper limits
+    CairoMakie.Colorbar(fig[1, 2];
+        colormap = cmap,
+        limits = colorrange,
+        label = colorlabel)
+
+    return fig
+end
+
+# plot_colored_scatter(ss.tau_y, ss.tau_c, ss.aggC)
+
+# plot_policy_path_in_tauc_tauy(ss)
+
+
+
+###############################################################################
+###############################################################################
+############ 6. PLOTTING DISTRIBUTIONS BY PROGRESSIVITY PARAMETERS ############
+###############################################################################
+###############################################################################
+
+
+function plot_densities_by_group(data_dict, group_syms::Vector{Symbol};
+    x_vec = nothing,
+    xlabel = "Wealth (a)",
+    ylabel = "Density",
+    title = "Density by Group",
+    legend_pos = :rt,
+    cmap = :Set1_9,
+    index_range = nothing,
+    leg_labels = nothing  
+)
+    fig = CairoMakie.Figure(size = (800, 500))
+    ax = CairoMakie.Axis(fig[1, 1],
+        xlabel = xlabel,
+        ylabel = ylabel,
+        title = title,
+        titlesize = 20,
+        xlabelsize = 14,
+        ylabelsize = 14
+    )
+
+    colors = ColorSchemes.colorschemes[cmap].colors[1:length(group_syms)]
+
+    # Handle index range
+    if !isnothing(index_range)
+        range_start, range_end = index_range isa Tuple ? index_range : (first(index_range), last(index_range))
+        x_sub = x_vec[range_start:range_end]
+    else
+        x_sub = x_vec
+    end
+
+    for (i, sym) in enumerate(group_syms)
+        y_vals = data_dict[sym]
+        y_sub = isnothing(index_range) ? y_vals : y_vals[range_start:range_end]
+
+        label_str = isnothing(leg_labels) ? string(sym) : leg_labels[i]
+
+        CairoMakie.lines!(ax, x_sub, y_sub;
+            label = label_str, linewidth = 2, color = colors[i])
+    end
+
+    CairoMakie.axislegend(ax, position = legend_pos)
+
+    return fig
+end

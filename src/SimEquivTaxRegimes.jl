@@ -79,14 +79,15 @@ l_grid = makeGrid(gpar.l_min, gpar.l_max, gpar.N_l; grid_type = "labor-double")
 #--------------# Change in tau_y: solve for G-equivalent tau_c #--------------#
 
 # Fix number of different regimes to simulate
-n_sim = 51
+n_sim = nthreads() * 3
 
 # Create matrix of Taxes structs for each simulation
 regimes = [deepcopy(b_taxes) for t in 1:n_sim]
 
 # Generate new labor income tax progressivity parameters
 # Range: -20% + 20%
-var_coeffs = 1 .+ collect(range(-0.2, 0.2, n_sim))
+perc_vars = collect(range(-0.2, 0.2, n_sim + 1))
+var_coeffs = 1 .+ perc_vars[perc_vars .!= 0] # Remove baseline
 
 for t in 1:n_sim
     regimes[t].tau_y = round(b_taxes.tau_y * var_coeffs[t], digits = 5)
@@ -146,7 +147,7 @@ for i in 1:n_sim
         # Model results
         items = Dict(
             # Equilibrium 
-            :r => r, :w => w, :stat_dist => stat_dist,
+            :r => r_eq, :w => w_eq, :stat_dist => stat_dist,
             # Policy rules
             :policy_a => policy_a, :policy_l => policy_l, :policy_c => policy_c,
             # Main distributions
@@ -161,7 +162,7 @@ for i in 1:n_sim
 
         for (name, mat) in items
             filepath = joinpath(eqr_res_paths[i], string(name) * ".txt")
-            SaveMatrix(mat, filepath; overwrite=false)
+            SaveMatrix(mat, filepath; overwrite=false, taxes = t_taxes)
         end
 
     end)
@@ -178,5 +179,5 @@ time_end = now()
 session_time = Dates.canonicalize(Dates.CompoundPeriod(Dates.DateTime(time_end) - Dates.DateTime(time_start)))
 timestamp_end = Dates.format(now(), "yyyymmdd-HH_MM_SS")
 
-print_eq_regime_search_session_details(regimes, b_taxes,
+print_eq_regime_search_session_details(eq_regimes, eq_rates, b_taxes,
                                         "./output/equivalent_regimes/session_end_$(timestamp_end).txt")
