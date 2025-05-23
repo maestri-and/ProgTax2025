@@ -976,3 +976,154 @@ function TwoLevelEquilibriumNewton(
 
     error("❌ Joint Newton (outer on $(adjust_par)) did not converge.")
 end
+
+
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-------------------------# 10. ROBUSTNESS CHECKS  #--------------------------#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
+
+
+function compute_tax_components(stat_dist, policy_c, policy_l, 
+    a_grid, rho_grid, r, w, taxes)
+        # Consumption Tax
+    consumption_tax_policy = policy_c .- taxes.lambda_c .* policy_c .^ (1 - taxes.tau_c) 
+    distCtax = stat_dist .* consumption_tax_policy 
+    aggT_c = sum(distCtax)              # Net consumption tax revenue, after redistribution if any
+
+    # Labor Tax
+    policy_l_incpt = policy_l .* rho_grid .* w    # diag(rho_grid)*policy_l*w
+    labor_tax_policy = policy_l_incpt .- taxes.lambda_y .* policy_l_incpt .^ (1 - taxes.tau_y)
+    distWtax = stat_dist .* labor_tax_policy
+    aggT_y = sum(distWtax)                    # Net labor tax revenue, after redistribution if any
+
+    # Capital Tax
+    distKtax = (taxes.tau_k * r) .* a_grid
+    aggT_k = sum(stat_dist * distKtax)
+
+    return aggT_c, aggT_y, aggT_k
+end
+
+function MultiDimEquilibriumNewton(
+    a_grid, rho_grid, l_grid,
+    gpar, hhpar, fpar, base_taxes,
+    pi_rho, comp_params, G_target, target_val;
+    target = "revenue",
+    initial_x = [0.03, base_taxes.tau_c, base_taxes.lambda_c],
+    tol = 1e-6,
+    max_iter = 50,
+    damping_weight = 0.2
+)
+    # Create mutable copy of taxes
+    new_taxes = deepcopy(base_taxes)
+    x = copy(initial_x)  # [r, tau_c, lambda_c]
+    h = 1e-4
+
+    for iter in 1:max_iter
+        r, tau_c, lambda_c = x
+        setproperty!(new_taxes, :tau_c, tau_c)
+        setproperty!(new_taxes, :lambda_c, lambda_c)
+
+        # === Solve household problem directly at fixed r ===
+        w = cd_implied_opt_wage(r)
+        _, _, _, _, _, valuef, policy_a, policy_l, policy_c = SolveHouseholdProblem(
+            a_grid, rho_grid, l_grid, gpar, w, r, new_taxes,
+            hhpar, pi_rho, comp_params,
+            V_guess = zeros(gpar.N_rho, gpar.N_a),
+            parallelise = false
+        )
+
+        stat_dist = stationary_distribution(
+            a_grid, pi_rho, policy_a, gpar,
+            tol = 1e-10, max_iter = 100_000
+        )
+
+        # === Compute residuals ===
+        aggK = sum(stat_dist .* a_grid')
+        effective_L = sum(stat_dist .* policy_l .* rho_grid)
+        K_demand = ((fpar.alpha * fpar.tfp) / (r + fpar.delta)) ^ (1 / (1 - fpar.alpha)) * effective_L
+        F1 = K_demand - aggK
+
+        
+        Tc, Ty, Tk = compute_tax_components(stat_dist, policy_c, policy_l, a_grid, rho_grid, r, w, new_taxes)
+        T = Tc + Ty + Tk
+        F2 = G_target - T
+        if target == "revenue"
+            F3 = target_val - (Tc / T)
+        elseif target == "aer"
+            # Compute average effective rate 
+            consumption_tax_policy = policy_c .- new_taxes.lambda_c .* policy_c .^ (1 - new_taxes.tau_c) 
+            cons_tax_eff_rates = consumption_tax_policy ./ policy_c
+            aer = sum(cons_tax_eff_rates .* stat_dist)
+            # Define error
+            F3 = target_val - aer
+        else
+            error("UnDefError: Check your target!")
+        end
+
+        # println("Capital error: $F1, G = $T, Share of Consumption Taxes = $(Tc / T)")
+
+        F = [F1, F2, F3]
+
+        if norm(F) < tol
+            println("✅ Converged: r = $(r), tau_c = $(tau_c), lambda_c = $(lambda_c)")
+            return x[3], x[2], x[1], w, stat_dist, valuef, policy_a, policy_l, policy_c
+        end
+
+        # === Numerical Jacobian ===
+        J = zeros(3, 3)
+        for i in 1:3
+            x_perturb = copy(x)
+            x_perturb[i] += h
+            r_p, tau_p, lambda_p = x_perturb
+
+            setproperty!(new_taxes, :tau_c, tau_p)
+            setproperty!(new_taxes, :lambda_c, lambda_p)
+
+            w_p = cd_implied_opt_wage(r_p)
+            _, _, _, _, _, _, policy_a_p, policy_l_p, policy_c_p = SolveHouseholdProblem(
+                a_grid, rho_grid, l_grid, gpar, w_p, r_p, new_taxes,
+                hhpar, pi_rho, comp_params,
+                V_guess = zeros(gpar.N_rho, gpar.N_a),
+                parallelise = false
+            )
+
+            stat_dist_p = stationary_distribution(
+                a_grid, pi_rho, policy_a_p, gpar,
+                tol = 1e-10, max_iter = 100_000
+            )
+
+            aggK_p = sum(stat_dist_p .* a_grid')
+            effective_L_p = sum(stat_dist_p .* policy_l_p .* rho_grid)
+            K_demand_p = ((fpar.alpha * fpar.tfp) / (r_p + fpar.delta)) ^ (1 / (1 - fpar.alpha)) * effective_L_p
+            F1_p = K_demand_p - aggK_p
+
+            Tc_p, Ty_p, Tk_p = compute_tax_components(stat_dist_p, policy_c_p, policy_l_p, a_grid, rho_grid, r_p, w_p, new_taxes)
+            T_p = Tc_p + Ty_p + Tk_p
+            F2_p = G_target - T_p
+
+            if target == "revenue"
+                F3_p = target_val - (Tc_p / T_p)
+            elseif target == "aer"
+                # Compute average effective rate 
+                consumption_tax_policy_p = policy_c_p .- new_taxes.lambda_c .* policy_c_p .^ (1 - new_taxes.tau_c) 
+                cons_tax_eff_rates_p = consumption_tax_policy_p ./ policy_c_p
+                aer_p = sum(cons_tax_eff_rates_p .* stat_dist_p)
+                # Define error
+                F3_p = target_val - aer_p
+            else
+                error("UnDefError: Check your target!")
+            end
+            
+            J[:, i] .= ([F1_p, F2_p, F3_p] .- F) ./ h
+        end
+
+        dx = J \ F
+        x -= damping_weight * dx
+        println("Iter $iter: r = $(x[1]), tau_c = $(x[2]), lambda_c = $(x[3]), norm(F) = $(norm(F))")
+    end
+
+    error("❌ Multi-dim Newton did not converge.")
+    
+end

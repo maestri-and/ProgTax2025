@@ -78,7 +78,7 @@ rho_dist = find_stable_dist(pi_rho)
 # labor_prog = range(0.0, 0.5, 2)
 
 # Test - TBM
-regimes = ImportEquivalentTaxRegimes("output/equivalent_regimes")
+regimes = ImportEquivalentTaxRegimes("output/equilibria/equivalent_regimes")
 
 
 r, w, stat_dist, valuef, policy_a, policy_l, policy_c, 

@@ -169,6 +169,64 @@ function SaveMatrix(matrix, filepath::String; overwrite=false, write_parameters 
     return nothing
 end
 
+# Export Calibration Table to Latex
+function output_parameters_latex(calibration_pars::Vector{String}, 
+                                 values::Vector{Float64}, 
+                                 save_path::String)
+
+    # Build dataframe
+    df = DataFrame(param = calibration_pars, value = round.(values, digits=4))
+
+    # Updated label map
+    latex_names = Dict(
+        "hhpar.beta"        => raw"$\beta$ - Discount factor",
+        "hhpar.rra"         => raw"$\sigma$ - Relative risk aversion",
+        "hhpar.dis_labor"   => raw"$B$ - Disutility of labor",
+        "hhpar.inv_frisch"  => raw"$\psi$ - Inverse of Frisch elasticity",
+        "rhopar.rho_prod_ar1"   => raw"$\rho_{AR(1)}$ - Prod. AR(1) Process persistency",
+        "rhopar.sigma_prod_ar1" => raw"$\sigma_{AR(1)}$ - Prod. AR(1) Process volatility",
+        "rhopar.n_prod_ar1"     => raw"N. States - Rouwenhorst discretisation",
+        "fpar.alpha"        => raw"$\alpha$ - Capital share",
+        "fpar.delta"        => raw"$\delta$ - Depreciation rate",
+        "fpar.tfp"          => raw"$A$ - Total Factor Productivity",
+        "taxes.lambda_y"    => raw"$\lambda_y$ - Labor tax scale",
+        "taxes.tau_y"       => raw"$\tau_y$ - Labor tax progressivity",
+        "taxes.lambda_c"    => raw"$\lambda_c$ - Consumption tax scale",
+        "taxes.tau_c"       => raw"$\tau_c$ - Consumption tax progressivity",
+        "taxes.tau_k"       => raw"$\tau_k$ - Capital return tax rate",
+        "gpar.a_min"        => raw"$\underline{a}$ - Borrowing Limit"
+    )
+
+    # Filter
+    df = filter(row -> row.param in keys(latex_names), df)
+
+    # Relabel
+    df.param = get.(Ref(latex_names), df.param, df.param)
+
+    # Export LaTeX
+    open(save_path, "w") do io
+        pretty_table(io, df, header = ["Parameter", "Value"], backend = Val(:latex))
+    end
+
+    # Clean LaTeX ex-post
+    lines = readlines(save_path)
+
+    # cleaned = replace.(lines, "\\\\" => "\\")                # fix over-escaping
+    cleaned = replace.(lines, raw"\$" => raw"$")              # fix \$ → $
+    cleaned = replace.(cleaned, raw"\{" => raw"{")              # fix \$ → $
+    cleaned = replace.(cleaned, raw"\}" => raw"}")
+    cleaned = replace.(cleaned, raw"\textbackslash{}" => "\\")# remove \textbackslash{}
+    cleaned = replace.(cleaned, raw"\_" => "_")             # fix escaped underscores
+
+    open(save_path, "w") do io
+        for line in cleaned
+            println(io, line)
+        end
+    end
+
+end
+
+
 # Importing matrix printed to .txt - DEPRECATED 
 function ReadMatrix(filepath::String)
     local matrix

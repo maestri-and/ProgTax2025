@@ -29,6 +29,20 @@ function get_utility_hh(consumption, labor, hhpar; normalise = false)
     end
 end
 
+# function get_utility_hh(consumption, labor, hhpar; normalise = false)
+#     # Compute households' utility - with normalisation if necessary 
+#     try
+#         if normalise == true
+#             return (consumption ^ (1 - hhpar.rra) - 1)/(1 - hhpar.rra) - hhpar.dis_labor * (labor ^ (1 + hhpar.inv_frisch) - 1)/(1 + hhpar.inv_frisch)
+#         else
+#             return (consumption ^ (1 - hhpar.rra))/(1 - hhpar.rra) - hhpar.dis_labor * (labor ^ (1 + hhpar.inv_frisch))/(1 + hhpar.inv_frisch)
+#         end
+#     catch e
+#         println("C = $consumption, L = $labor, HHPar = $hhpar")
+#         error(e)
+#     end
+# end
+
 # Define household taxes 
 function tax_hh(z, lambda_z, tau_z)
     # Temporary: taxes only on wage

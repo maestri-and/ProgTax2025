@@ -35,7 +35,7 @@ struct prodAR1Params
 end
 
 # Calibrating productivity process using Rouwenhorst 
-# AR(1) process parameters set to minimise Gini for income distribution
+# AR(1) process parameters from Cahn et al. 2024
 rhopar = prodAR1Params(0.9183,
                        0.2976,
                        7,
@@ -77,6 +77,9 @@ mutable struct Taxes
     # Capital tax - Linear
     tau_k::Float64
 end
+
+# Outer constructor for a 5-element tuple
+Taxes(t::NTuple{5, Float64}) = Taxes(t...)
 
 # Firm parameters
 struct FirmParams

@@ -40,12 +40,13 @@ time_start = now()
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
 # Get steady state values for multiple tax structs
-baseline_path = "output/baseline/model_results"
+baseline_path = "output/equilibria/baseline/model_results"
 baseline = get_model_results(baseline_path)
 
 # Extract baseline taxes and government expenditure
 b_taxes = Taxes(baseline.taxes[1]...)
 b_aggG = baseline.aggG[1]
+@info("Looking for other regimes generating revenue = $b_aggG")
 
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
@@ -95,8 +96,8 @@ end
 
 # Clean and prepare folders
 GC.gc()
-foreach(x -> rm(x; force=true, recursive=true), readdir("output/equivalent_regimes", join=true))
-eqr_paths = [joinpath("output/equivalent_regimes", "eqr$i") for i in 1:n_sim]
+foreach(x -> rm(x; force=true, recursive=true), readdir("output/equilibria/equivalent_regimes", join=true))
+eqr_paths = [joinpath("output/equilibria/equivalent_regimes", "eqr$i") for i in 1:n_sim]
 eqr_res_paths = [joinpath(eqr_paths[i], "model_results") for i in 1:n_sim]
 
 # Prepare containers
@@ -149,7 +150,7 @@ for i in 1:n_sim
             # Equilibrium 
             :r => r_eq, :w => w_eq, :stat_dist => stat_dist,
             # Policy rules
-            :policy_a => policy_a, :policy_l => policy_l, :policy_c => policy_c,
+            :policy_a => policy_a, :policy_l => policy_l, :policy_c => policy_c, :valuef => valuef,
             # Main distributions
             :distC => distC, :distK => distK, :distH => distH, :distL => distL,
             :distCtax => distCtax, :distWtax => distWtax, :distKtax => distKtax,
@@ -180,4 +181,4 @@ session_time = Dates.canonicalize(Dates.CompoundPeriod(Dates.DateTime(time_end) 
 timestamp_end = Dates.format(now(), "yyyymmdd-HH_MM_SS")
 
 print_eq_regime_search_session_details(eq_regimes, eq_rates, b_taxes,
-                                        "./output/equivalent_regimes/session_end_$(timestamp_end).txt")
+                                        "./output/equilibria/equivalent_regimes/session_end_$(timestamp_end).txt")

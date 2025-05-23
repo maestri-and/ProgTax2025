@@ -86,7 +86,15 @@ CairoMakie.set_theme!(
 )
 
 
+# Nice Palettes - for later reference
+# Factor - 7: Spectral_7, RdYlGn_7, 
+Set1_7_custom = ColorSchemes.colorschemes[:Set1_8].colors[[1, 5, 6, 3, 2, 4, 8]]
+ColorSchemes.colorschemes[:Set1_7_custom] = ColorScheme(Set1_7_custom)
 
+# Generate and reverse 10-point version of :avocado
+colors = reverse(collect(CairoMakie.cgrad(:avocado, 10, categorical = true)))
+typed_colors = convert(Vector{Colorant}, colors)
+ColorSchemes.colorschemes[:avocado_10] = ColorScheme(typed_colors)
 
 ###############################################################################
 ####################### 0. PRELIMINARY PLOTS - UTILITY ########################
@@ -394,6 +402,7 @@ end
 ################### 4. PLOTTING VALUE AND POLICY FUNCTIONS ####################
 ###############################################################################
 
+# Plots - Deprecated
 function plot_value_function(V_new, a_grid, rho_grid; taxes=taxes)
     """
     Plots the value function for each productivity level with interpolation.
@@ -430,6 +439,7 @@ function plot_value_function(V_new, a_grid, rho_grid; taxes=taxes)
     return Plots.plot(suptitle, p, layout = @layout([A{0.01h}; B]))
 end
 
+# Plots - Deprecated
 function plot_policy_function(policy_data, a_grid, rho_grid; policy_type="assets", taxes=taxes)
     """
     Generic function to plot policy functions (assets, labor, or consumption), detecting whether
@@ -495,7 +505,8 @@ function plot_policy_function(policy_data, a_grid, rho_grid; policy_type="assets
     return Plots.plot(suptitle, p, layout = @layout([A{0.01h}; B]))
 end
 
-    function plot_household_policies(valuef, policy_a_int, policy_l_int, policy_c,
+# Plots - Deprecated
+function plot_household_policies(valuef, policy_a_int, policy_l_int, policy_c,
                                     a_grid, rho_grid, taxes;
                                     plot_types = ["value", "assets", "labor", "consumption"],
                                     save_plots = false)
@@ -519,7 +530,7 @@ end
             p_val = plot_value_function(valuef, a_grid, rho_grid)
             display(p_val)
             if save_plots
-                savefig(p_val, "output/preliminary/policy_funs/cont/value_function_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
+                savefig(p_val, "output/preliminary/policy_funs/cont/value_function_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c)_tk$(taxes.tau_k).png")
             end
         end
 
@@ -527,7 +538,7 @@ end
             p_a = plot_policy_function(policy_a_int, a_grid, rho_grid, policy_type = "assets")
             display(p_a)
             if save_plots
-                savefig(p_a, "output/preliminary/policy_funs/cont/asset_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
+                savefig(p_a, "output/preliminary/policy_funs/cont/asset_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c)_tk$(taxes.tau_k).png")
             end
         end
 
@@ -535,7 +546,7 @@ end
             p_l = plot_policy_function(policy_l_int, a_grid, rho_grid, policy_type = "labor")
             display(p_l)
             if save_plots
-                savefig(p_l, "output/preliminary/policy_funs/cont/labor_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
+                savefig(p_l, "output/preliminary/policy_funs/cont/labor_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c)_tk$(taxes.tau_k).png")
             end
         end
 
@@ -543,7 +554,7 @@ end
             p_c = plot_policy_function(policy_c, a_grid, rho_grid, policy_type = "consumption")
             display(p_c)
             if save_plots
-                savefig(p_c, "output/preliminary/policy_funs/cont/cons_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
+                savefig(p_c, "output/preliminary/policy_funs/cont/cons_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c)_tk$(taxes.tau_k).png")
             end
         end
     end
@@ -617,7 +628,7 @@ function plot_policy_function(policy_data, a_grid, rho_grid;
     haskey(titles, policy_type) || error("Invalid policy_type. Choose 'assets', 'labor', or 'consumption'.")
     title_text, ylabel_text, leg_pos = titles[policy_type]
 
-    fig = CairoMakie.Figure(soze = (800, 500))
+    fig = CairoMakie.Figure(size = (800, 500))
     ax = CairoMakie.Axis(fig[1, 1],
         xlabel = "Current Assets (a)",
         ylabel = ylabel_text,
@@ -642,7 +653,7 @@ function plot_policy_function(policy_data, a_grid, rho_grid;
     if isa(policy_data, AbstractMatrix)
         for (i, rho_val) in enumerate(rho_grid)
             CairoMakie.lines!(ax, a_grid, policy_data[i, :],
-                label = "ρ = $(round(rho_val, digits=4))", linewidth = 2, color = colors[i])
+                label = "ρ = $(round(rho_val, digits=3))", linewidth = 2, color = colors[i])
         end
 
     elseif policy_data isa Function || policy_data isa Interpolations.GriddedInterpolation
@@ -665,6 +676,7 @@ function plot_household_policies(valuef, policy_a_int, policy_l_int, policy_c,
                                  a_grid, rho_grid, taxes;
                                  plot_types = ["value", "assets", "labor", "consumption"],
                                  save_plots = false,
+                                 save_path = "output/figures/baseline",
                                  cmap = :Spectral_7,
                                  reverse_palette = false)
 
@@ -690,7 +702,8 @@ function plot_household_policies(valuef, policy_a_int, policy_l_int, policy_c,
             taxes = taxes, cmap = cmap, reverse_palette = reverse_palette)
         display(p_val)
         if save_plots
-            savefig(p_val, "output/preliminary/policy_funs/cont/value_function_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
+            save(joinpath(save_path, "value_function_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c)_tk$(taxes.tau_k).png"),
+            p_val)
         end
     end
 
@@ -699,7 +712,8 @@ function plot_household_policies(valuef, policy_a_int, policy_l_int, policy_c,
             policy_type = "assets", taxes = taxes, cmap = cmap, reverse_palette = reverse_palette)
         display(p_a)
         if save_plots
-            savefig(p_a, "output/preliminary/policy_funs/cont/asset_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
+            save(joinpath(save_path, "asset_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c)_tk$(taxes.tau_k).png"),
+            p_a)
         end
     end
 
@@ -708,7 +722,8 @@ function plot_household_policies(valuef, policy_a_int, policy_l_int, policy_c,
             policy_type = "labor", taxes = taxes, cmap = cmap, reverse_palette = reverse_palette)
         display(p_l)
         if save_plots
-            savefig(p_l, "output/preliminary/policy_funs/cont/labor_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
+            save(joinpath(save_path, "labor_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c)_tk$(taxes.tau_k).png"),
+            p_l)
         end
     end
 
@@ -717,14 +732,17 @@ function plot_household_policies(valuef, policy_a_int, policy_l_int, policy_c,
             policy_type = "consumption", taxes = taxes, cmap = cmap, reverse_palette = reverse_palette)
         display(p_c)
         if save_plots
-            savefig(p_c, "output/preliminary/policy_funs/cont/cons_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c).png")
+            save(joinpath(save_path, "cons_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c)_tk$(taxes.tau_k).png"),
+            p_c)
         end
     end
 end
 
 
 # 3D plot
-function plot_policy_function_3d(policy_data, a_grid, rho_grid; policy_type="labor", taxes=taxes)
+function plot_policy_function_3d(policy_data, a_grid, rho_grid; policy_type="labor", taxes=taxes, save_plot = false,
+                                 save_path = "output/figures/baseline",
+                                 cmap = :turbo)
     titles = Dict(
         "assets"      => ("Asset Policy Function", "Future Assets"),
         "labor"       => ("Labor Policy Function", "Labor Supply"),
@@ -760,6 +778,7 @@ function plot_policy_function_3d(policy_data, a_grid, rho_grid; policy_type="lab
     CairoMakie.Label(
     fig[1, 1, Top()], title_text;
     fontsize = 18,
+    font = "TeX Gyre Heros Makie Bold",
     halign = :center,
     padding = (0, 0, 10, 0))
 
@@ -770,7 +789,7 @@ function plot_policy_function_3d(policy_data, a_grid, rho_grid; policy_type="lab
     fig[1, 1],
     # title = title_text,
     xlabel = "Asset holdings",
-    ylabel = "Skill level",
+    ylabel = "Productivity level",
     zlabel = zlabel_text,
     azimuth = -.25π,    # horizontal rotation (left-right)
     # elevation = 30    # vertical tilt
@@ -782,13 +801,17 @@ function plot_policy_function_3d(policy_data, a_grid, rho_grid; policy_type="lab
     # )
 
     CairoMakie.surface!(ax, A, R, Z, 
-                        colormap = :turbo,
+                        colormap = cmap,
                         shading = NoShading,
                         transparency = false,
                         colorrange = extrema(Z))
 
     CairoMakie.wireframe!(ax, A, R, Z; overdraw = true, color = :black, linewidth = 0.3)
 
+    if save_plot
+        save(joinpath(save_path, "3d_labor_policy_ly$(taxes.lambda_y)_ty$(taxes.tau_y)_lc$(taxes.lambda_c)_tc$(taxes.tau_c)_tk$(taxes.tau_k).png"),
+        fig)
+    end
     
     return(fig)
 end
@@ -818,26 +841,64 @@ function plot_heatmap_stationary_distribution(stat_dist; taxes=taxes)
     return(p)
 end
 
-function plot_density_by_productivity(stat_dist, a_grid, gpar; rho_grid=nothing)
+# Plots - Deprecated
+# function plot_density_by_productivity(stat_dist, a_grid, gpar; rho_grid=nothing)
 
-    plt = Plots.plot(
+#     plt = Plots.plot(
+#         xlabel = "Wealth (a)",
+#         ylabel = "Density",
+#         title = "Stationary distribution by productivity level",
+#         legend = :topright,
+#         linewidth = 2
+#     )
+
+#     for i in 1:gpar.N_rho
+#         label = isnothing(rho_grid) ? "ρ = $i" : "ρ = $(round(rho_grid[i], digits=2))"
+#         Plots.plot!(plt, a_grid, stat_dist[i, :], label = label)
+#     end
+
+#     return plt
+# end
+
+function plot_density_by_productivity(stat_dist, a_grid, gpar;
+    rho_grid = nothing,
+    save_plot = false,
+    save_path = "output/figures/baseline/stat_dist_by_prod.png",
+    cmap = :Set1_9
+)
+    fig = CairoMakie.Figure(size = (800, 500))
+
+    ax = CairoMakie.Axis(fig[1, 1],
         xlabel = "Wealth (a)",
         ylabel = "Density",
         title = "Stationary distribution by productivity level",
-        legend = :topright,
-        linewidth = 2
+        titlesize = 20,
+        xlabelsize = 14,
+        ylabelsize = 14
     )
 
+    # Get color palette
+    colors = ColorSchemes.colorschemes[cmap].colors[1:gpar.N_rho]
+
     for i in 1:gpar.N_rho
-        label = isnothing(rho_grid) ? "ρ = $i" : "ρ = $(round(rho_grid[i], digits=2))"
-        Plots.plot!(plt, a_grid, stat_dist[i, :], label = label)
+        label = isnothing(rho_grid) ? "ρ = $i" : "ρ = $(round(rho_grid[i], digits = 3))"
+        CairoMakie.lines!(ax, a_grid, stat_dist[i, :], label = label, color = colors[i], linewidth = 2)
     end
 
-    return plt
+    CairoMakie.axislegend(ax, position = :rt)
+
+    if save_plot
+        CairoMakie.save(save_path, fig)
+    end
+
+    return fig
 end
 
 function plot_dist_stats_bar(stats::Vector; dist_type::String = "wlt",
-                                            show_labels::Bool = true)
+                                            show_labels::Bool = true,
+                                            save_plot = false,
+                                            save_path = "output/figures/baseline/wealth_dist_stats.png"
+                                            )
     """
     plot_dist_stats_bar(stats::Vector{Tuple}; title_str="Wealth Distribution", show_labels=true)
 
@@ -891,12 +952,18 @@ function plot_dist_stats_bar(stats::Vector; dist_type::String = "wlt",
         end
     end
 
+    if save_plot
+        CairoMakie.save(save_path, fig)
+    end
+
     return fig
 end
 
 function plot_model_vs_data(data::Vector{<:Real}, model::Vector{<:Real}, labels::Vector{<:AbstractString};
     title_str::String = "Model vs Data", ylabel_str::String = "Percentage",
-    barcolor = :limegreen)
+    barcolor = :limegreen, save_plot = false,
+    save_path = "output/figures/baseline/wealth_dist_vs_data.png")
+# Preliminary check of inputs
 @assert length(data) == length(model) == length(labels) "Vectors must be the same length"
 
 fig = CairoMakie.Figure(size = (800, 400))
@@ -914,6 +981,10 @@ CairoMakie.axislegend(ax,
     [CairoMakie.PolyElement(color=barcolor), CairoMakie.MarkerElement(marker=:circle, color=:black)],
     ["Data", "Model"]
 )
+
+if save_plot
+        CairoMakie.save(save_path, fig)
+    end
 
 return fig
 end
@@ -984,8 +1055,13 @@ function plot_3d_line(ss)
 end
 
 function plot_colored_scatter(x_vec, color_vec, y_vec;
-    xlabel = LaTeXString("\\tau_y"), ylabel = "Aggregate Consumption", colorlabel =  LaTeXString("\\tau_c"),
-    cmap = :plasma, interpolate = true, adjust_color_legend = true)
+    xlabel = LaTeXString("\\Delta\\tau_y (%)"), 
+    ylabel = "Aggregate", 
+    colorlabel =  LaTeXString("\\Delta\\tau_c (%)"),
+    cmap = :plasma, interpolate = true, 
+    adjust_color_legend = true,
+    save_plot = false,
+    save_path::String = "output/figures/test.png")
 
     fig = CairoMakie.Figure()
     ax = CairoMakie.Axis(fig[1, 1], xlabel = xlabel, ylabel = ylabel)
@@ -1006,6 +1082,10 @@ function plot_colored_scatter(x_vec, color_vec, y_vec;
         colormap = cmap,
         limits = colorrange,
         label = colorlabel)
+    
+    if save_plot
+        CairoMakie.save(save_path, fig)
+    end
 
     return fig
 end
@@ -1029,7 +1109,7 @@ function plot_densities_by_group(data_dict, group_syms::Vector{Symbol};
     ylabel = "Density",
     title = "Density by Group",
     legend_pos = :rt,
-    cmap = :Set1_9,
+    cmap = :PiYG_10,
     index_range = nothing,
     leg_labels = nothing  
 )
@@ -1064,6 +1144,53 @@ function plot_densities_by_group(data_dict, group_syms::Vector{Symbol};
     end
 
     CairoMakie.axislegend(ax, position = legend_pos)
+
+    return fig
+end
+
+function plot_decile_distributions_by_group(data_dict, group_syms::Vector{Symbol};
+    ylabel = "Share",
+    title = "Distribution by Income Decile",
+    legend_pos = :rt,
+    bar_palette = [:red, :gray, :blue],
+    leg_labels = nothing,
+    save_plot = false,
+    save_path = "output/figures/decile_distribution.png",
+    as_percentage = true
+)
+    n_groups = length(group_syms)
+    n_deciles = 10
+
+    # Bar offsets for grouped layout
+    group_spacing = 0.8
+    bar_width = group_spacing / n_groups
+    x_base = 1:n_deciles
+    shifts = range(-group_spacing/2 + bar_width/2, stop = group_spacing/2 - bar_width/2, length = n_groups)
+
+    fig = CairoMakie.Figure(size = (800, 500))
+    ax = CairoMakie.Axis(fig[1, 1],
+        xlabel = "Decile",
+        ylabel = ylabel,
+        title = title,
+        titlesize = 20,
+        xlabelsize = 14,
+        ylabelsize = 14,
+        xticks = (1:10, ["D$i" for i in 1:10])
+    )
+
+    for (i, sym) in enumerate(group_syms)
+        y_vals = data_dict[sym]
+        x_vals = x_base .+ shifts[i]
+        y_vals = as_percentage ? y_vals .* 100 : y_vals
+        label_str = isnothing(leg_labels) ? string(sym) : leg_labels[i]
+        CairoMakie.barplot!(ax, x_vals, y_vals; width = bar_width, color = bar_palette[i], label = label_str)
+    end
+
+    CairoMakie.axislegend(ax, position = legend_pos)
+
+    if save_plot
+        CairoMakie.save(save_path, fig)
+    end
 
     return fig
 end
