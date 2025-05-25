@@ -913,7 +913,8 @@ function TwoLevelEquilibriumNewton(
     initial_r = 0.03, 
     tol = 1e-6,
     max_iter = 50,
-    regime_search_only = false
+    regime_search_only = false,
+    parallelise = false
 )   
     # Initialise new tax regime vector (copy base taxes)
     new_taxes = deepcopy(t_taxes)
@@ -934,7 +935,7 @@ function TwoLevelEquilibriumNewton(
             initial_r = initial_r,
             collect_errors = false,
             print_info = false,
-            parallelise = false
+            parallelise = parallelise
         )
 
         # === Compute government revenue and its gap ===
@@ -962,7 +963,7 @@ function TwoLevelEquilibriumNewton(
             initial_r = initial_r,
             collect_errors = false,
             print_info = false,
-            parallelise = false
+            parallelise = parallelise
         )
 
         aggG_up = compute_government_revenue(stat_dist_up, policy_c_up, policy_l_up, a_grid, rho_grid, r_up, w_up, new_taxes)
