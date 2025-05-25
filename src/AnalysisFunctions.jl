@@ -69,9 +69,15 @@ function extract_low_mid_high(df, col_sym;
 
     # Transform into percentages and round if desired
     if as_percentage
-        col_low = round(col_low * 100, digits = 2)
-        col_mid = round(col_mid * 100, digits = 2)
-        col_high = round(col_high * 100, digits = 2)
+        if isa(col_low, Number)
+            col_low = round(col_low * 100, digits = 2)
+            col_mid = round(col_mid * 100, digits = 2)
+            col_high = round(col_high * 100, digits = 2)
+        elseif isa(col_low, AbstractArray) || isa(col_low, Tuple)
+            col_low = round.(col_low .* 100, digits = 2)
+            col_mid = round.(col_mid .* 100, digits = 2)
+            col_high = round.(col_high .* 100, digits = 2)
+        end
     end
 
     # Create vector 

@@ -1121,6 +1121,13 @@ function MultiDimEquilibriumNewton(
 
         dx = J \ F
         x -= damping_weight * dx
+        # Make sure bounds are satisfied 
+        if x[3] != clamp(x[3], 0.0, 1.0)
+            @warn("lambda_c hit a bound: $(x[3])")
+            x[3] = clamp(x[3], 0.0, 1.0)    # lambda_c ∈ [0, 1]
+        end
+        
+
         println("Iter $iter: r = $(x[1]), tau_c = $(x[2]), lambda_c = $(x[3]), norm(F) = $(norm(F))")
     end
 

@@ -150,22 +150,22 @@ excess_prod, bc_max_discrepancy = compute_aggregates_and_check(stat_dist, policy
 # valuef_int, policy_a_int, policy_c_int, policy_l_int = interpolate_policy_funs(valuef, policy_a, policy_c, policy_l, rho_grid, a_grid);
 
 # Plot policy functions if necessary
-plot_household_policies(policy_a, #valuef, 
+plot_household_policies(valuef, 
                         policy_a, policy_l, policy_c,
                         a_grid, rho_grid, taxes;
                         plot_types = ["value", "assets", "labor", "consumption"],
-                        save_plots = false,
+                        save_plots = true,
                         cmap = :Spectral_7)
 
 # 3D plot: labor policy function
 plot_policy_function_3d(policy_l, a_grid, rho_grid; policy_type="labor",
-                        save_plot = false, cmap = :turbo)
+                        save_plot = true, cmap = :turbo)
 
 
 # Plot stationary distribution 
 # plot_heatmap_stationary_distribution(stat_dist; taxes=taxes)
 plot_density_by_productivity(stat_dist, a_grid, gpar; rho_grid=rho_grid, cmap = :Spectral_7,
-                             save_plot = false)
+                             save_plot = true)
 
 
 #---------------------------------# 2. WEALTH #--------------------------------#
@@ -263,10 +263,11 @@ b50t10aetr_Wtax = round.([avg_rates_Wtax[1][2], avg_rates_Wtax[3][2]], digits=3)
 
 aer_Wtax_deciles, aer_Wtax_plot = compute_decile_average_rates(stat_dist, labor_tax_policy;
     policy_l_incpt = policy_l_incpt,
-    save_plot = false,
+    save_plot = true,
     save_path = "output/figures/baseline/labor_tax_aer_deciles.png",
     cmap = :PiYG_10,
     as_percentage = true,
+    title_str = "Average Effective Labor Income Tax Rate by Income Decile",
     laby = "Tax Rate (%)"
 )
 
@@ -276,6 +277,7 @@ amr_Wtax_deciles, amr_Wtax_plot = compute_decile_marginal_rates(stat_dist, polic
     cmap = :PiYG_10,
     eps = 1e-4, 
     as_percentage = true,
+    title_str = "Average Marginal Labor Income Tax Rate by Income Decile",
     laby = "Tax Rate (%)"
 )
 
@@ -295,7 +297,7 @@ pre_tax_cons_gini = compute_gini(policy_c .+ consumption_tax_policy, stat_dist; 
 kakwani_cons_tax = cons_tax_gini - pre_tax_cons_gini
 
 aer_Ctax_deciles, aer_Ctax_plot = compute_decile_average_rates(stat_dist, consumption_tax_policy;
-    policy_l_incpt = policy_c .+ consumption_tax_policy, # Use policy_c to yield VAT-style rates
+    policy_l_incpt = policy_c, # Use policy_c to yield VAT-style rates
     save_plot = true,
     save_path = "output/figures/baseline/cons_tax_aer_deciles.png",
     cmap = :avocado_10,
@@ -305,7 +307,8 @@ aer_Ctax_deciles, aer_Ctax_plot = compute_decile_average_rates(stat_dist, consum
     as_percentage = true
 )
 
-amr_Ctax_deciles, amr_Ctax_plot = compute_decile_marginal_rates(stat_dist, policy_c .+ consumption_tax_policy,
+amr_Ctax_deciles, amr_Ctax_plot = compute_decile_marginal_rates(stat_dist, 
+    policy_c,
     taxes.lambda_c, taxes.tau_c;
     save_plot = true,
     save_path = "output/figures/baseline/cons_tax_amr_deciles.png",

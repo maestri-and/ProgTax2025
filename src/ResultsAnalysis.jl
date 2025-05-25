@@ -93,15 +93,8 @@ end
 
 # Reorder
 sort!(ss, :tau_y)
-# Exclude baseline temporarily - TBM
-# ss = ss[setdiff(1:nrow(ss), [25]), :]
 
 println(names(ss))
-
-# plot_policy_function(ss.policy_c[1], a_grid, rho_grid; policy_type="consumption", 
-#                      taxes=Taxes(baseline.taxes[1]),
-#                      cmap = :bluegreenyellow, # :Paired_7)
-#                      reverse_palette = true)
 
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
@@ -172,10 +165,12 @@ end
 # Preallocate columns
 ss.consumption_tax_policy = similar(ss.stat_dist)
 ss.consumption_tax_rate = similar(ss.stat_dist)
+ss.consumption_tax_rate_vat = similar(ss.stat_dist)
 ss.consumption_tax_gini = similar(ss.lambda_c)
 ss.consumption_base_gini = similar(ss.lambda_c)
 ss.kakwani_cons_tax = similar(ss.lambda_c)
 ss.avg_rates_Ctax = Vector{Any}(undef, nrow(ss))
+ss.avg_rates_Ctax_vat = Vector{Any}(undef, nrow(ss))
 ss.b10t10_rates_Ctax = Vector{Any}(undef, nrow(ss))
 ss.cons_deciles = Vector{Vector{Float64}}(undef, nrow(ss))
 
@@ -194,7 +189,8 @@ for i in 1:nrow(ss)
     ss.consumption_tax_policy[i] = consumption_tax_policy
     consumption_plus_tax_policy = policy_c .+ consumption_tax_policy
     ss.consumption_tax_rate[i] = consumption_tax_policy ./ consumption_plus_tax_policy
-
+    ss.consumption_tax_rate_vat[i] = consumption_tax_policy ./ policy_c
+    
     # Gini coefficients
     ss.consumption_tax_gini[i] = compute_gini(consumption_tax_policy, stat_dist; plot_curve = false)
     ss.consumption_base_gini[i] = compute_gini(consumption_plus_tax_policy, stat_dist; plot_curve = false)
@@ -205,16 +201,18 @@ for i in 1:nrow(ss)
     # === Average effective rates and AETR ===
     ss.avg_rates_Ctax[i] = compute_average_rate_stats(stat_dist, consumption_tax_policy, policy_l_incpt = consumption_plus_tax_policy,
                            cutoffs = [0.1, 0.5, 0.9, -0.1])
-    ss.b10t10_rates_Ctax[i] = round.((ss.avg_rates_Ctax[i][1][2], ss.avg_rates_Ctax[i][4][2]), digits = 3)
+    ss.avg_rates_Ctax_vat[i] = compute_average_rate_stats(stat_dist, consumption_tax_policy, policy_l_incpt = policy_c,
+                           cutoffs = [0.1, 0.5, 0.9, -0.1])
+    ss.b10t10_rates_Ctax[i] = round.((ss.avg_rates_Ctax_vat[i][1][2], ss.avg_rates_Ctax_vat[i][4][2]), digits = 3)
 end
 
 # compute_average_rate_stats(stat_dist, labor_tax_policy, policy_l_incpt = policy_l_incpt,
 #                            cutoffs = [0.1, 0.5, 0.9, -0.1])
 
 # Get extrema for consumption tax rates
-ss.cons_tax_rates_min = [round.(t; digits=3) for t in minimum.(ss.consumption_tax_rate)]
-ss.cons_tax_rates_max = [round.(t; digits=3) for t in maximum.(ss.consumption_tax_rate)]
-ss.cons_tax_rates_extrema = [round.(t; digits=3) for t in extrema.(ss.consumption_tax_rate)]
+ss.cons_tax_rates_min = [round.(t; digits=3) for t in minimum.(ss.consumption_tax_rate_vat)]
+ss.cons_tax_rates_max = [round.(t; digits=3) for t in maximum.(ss.consumption_tax_rate_vat)]
+ss.cons_tax_rates_extrema = [round.(t; digits=3) for t in extrema.(ss.consumption_tax_rate_vat)]
 
 
 # Compute % variation from the baseline for each column
@@ -261,9 +259,9 @@ push!(sec1_table, extract_low_mid_high(ss, :aggG;
                                       normalise = "num"))
 
 # Add Taxes bottom and top 10% average effective rates
-push!(sec1_table, extract_low_mid_high(ss, :cons_tax_rates_extrema; table_string = "Consumption Tax Effective Rates - Extrema"))
-push!(sec1_table, extract_low_mid_high(ss, :b10t10_rates_Ctax; table_string = "Consumption Tax Avg. Effective Rate - Bottom 10%, Top 10%"))
-push!(sec1_table, extract_low_mid_high(ss, :b50t10aetr_Wtax; table_string = "Labor Income Tax Avg. Effective Rate - Bottom 50%, Top 10%"))
+push!(sec1_table, extract_low_mid_high(ss, :cons_tax_rates_extrema; table_string = "Consumption Tax Effective Rates (%) - Extrema", as_percentage = true))
+push!(sec1_table, extract_low_mid_high(ss, :b10t10_rates_Ctax; table_string = "AETR (%) - Consumption — Bottom 10%, Top 10%", as_percentage = true))
+push!(sec1_table, extract_low_mid_high(ss, :b50t10aetr_Wtax; table_string = "AETR (%) - Labor Income - Bottom 50%, Top 10%", as_percentage = true))
 
 # Add Revenue shares 
 ss.TRevC = ss.aggT_c ./ ss.aggG
@@ -430,7 +428,7 @@ p = plot_decile_distributions_by_group(decC,
     title = "Consumption Distribution by Decile",
     ylabel = "Share (%)",
     bar_palette = [:red, :gray75, :blue],
-    leg_labels = ["Low τ_y", "Baseline", "High τ_y"]
+    leg_labels = ["Aug. Consumption Progressivity", "Baseline", "Aug. Labor Progressivity"]
     )
 
 CairoMakie.save("output/figures/equivalent_regimes/distributions/cons_dist_by_decile.png", p)
@@ -445,7 +443,7 @@ p = plot_decile_distributions_by_group(decCdiff,
     title = "Consumption Distribution by Decile - % Difference with Baseline",
     ylabel = "Share (%)",
     bar_palette = [:red, :blue],
-    leg_labels = ["Low τ_y", "High τ_y"]
+    leg_labels = ["Aug. Consumption Progressivity", "Aug. Labor Progressivity"]
     )
 
 CairoMakie.save("output/figures/equivalent_regimes/distributions/cons_diff_dist_by_decile.png", p)
@@ -477,7 +475,7 @@ p = plot_decile_distributions_by_group(decK,
     title = "Net Wealth Distribution by Decile",
     ylabel = "Share (%)",
     bar_palette = [:yellow2, :gray75, :mediumpurple2],
-    leg_labels = ["Low τ_y", "Baseline", "High τ_y"]
+    leg_labels = ["Aug. Consumption Progressivity", "Baseline", "Aug. Labor Progressivity"]
     )
 
 CairoMakie.save("output/figures/equivalent_regimes/distributions/asset_dist_by_decile.png", p)
@@ -492,7 +490,7 @@ p = plot_decile_distributions_by_group(decKdiff,
     title = "Net Wealth Distribution by Decile - % Difference with Baseline",
     ylabel = "Share (%)",
     bar_palette = [:yellow2, :mediumpurple2],
-    leg_labels = ["Low τ_y", "High τ_y"]
+    leg_labels = ["Aug. Consumption Progressivity", "Aug. Labor Progressivity"]
     )
 
 CairoMakie.save("output/figures/equivalent_regimes/distributions/asset_diff_dist_by_decile.png", p)
@@ -524,7 +522,7 @@ p = plot_decile_distributions_by_group(decH,
     title = "Labor (Hours) Distribution by Decile",
     ylabel = "Share (%)",
     bar_palette = [:darkorange1, :gray75, :limegreen],
-    leg_labels = ["Low τ_y", "Baseline", "High τ_y"]
+    leg_labels = ["Aug. Consumption Progressivity", "Baseline", "Aug. Labor Progressivity"]
     )
 
 CairoMakie.save("output/figures/equivalent_regimes/distributions/hours_dist_by_decile.png", p)
@@ -535,11 +533,11 @@ decHdiff = Dict(:lowdiff => ss.hours_deciles[idx_low_tau_y] - ss.hours_deciles[i
             
 p = plot_decile_distributions_by_group(decHdiff,
     [:lowdiff, :highdiff];
-    legend_pos = :lt,
+    legend_pos = :rt,
     title = "Labor (Hours) Distribution by Decile - % Difference with Baseline",
     ylabel = "Share (%)",
     bar_palette = [:darkorange1, :limegreen],
-    leg_labels = ["Low τ_y", "High τ_y"]
+    leg_labels = ["Aug. Consumption Progressivity", "Aug. Labor Progressivity"]
     )
 
 CairoMakie.save("output/figures/equivalent_regimes/distributions/hours_diff_dist_by_decile.png", p)
@@ -571,7 +569,7 @@ p = plot_decile_distributions_by_group(decWtax,
     title = "Labor Income Tax Distribution by Decile",
     ylabel = "Share (%)",
     bar_palette = [:red, :gray75, :blue],
-    leg_labels = ["Low τ_y", "Baseline", "High τ_y"]
+    leg_labels = ["Aug. Consumption Progressivity", "Baseline", "Aug. Labor Progressivity"]
     )
 
 CairoMakie.save("output/figures/equivalent_regimes/distributions/TaxW_dist_by_decile.png", p)
@@ -586,7 +584,7 @@ p = plot_decile_distributions_by_group(decWtaxdiff,
     title = "Labor Income Tax Distribution by Decile - % Difference with Baseline",
     ylabel = "Share (%)",
     bar_palette = [:red, :blue],
-    leg_labels = ["Low τ_y", "High τ_y"]
+    leg_labels = ["Aug. Consumption Progressivity", "Aug. Labor Progressivity"]
     )
 
 CairoMakie.save("output/figures/equivalent_regimes/distributions/TaxW_diff_dist_by_decile.png", p)
@@ -615,7 +613,7 @@ p = plot_decile_distributions_by_group(decCtax,
     title = "Consumption Tax Distribution by Decile",
     ylabel = "Share (%)",
     bar_palette = [:brown3, :gray75, :forestgreen],
-    leg_labels = ["Low τ_y", "Baseline", "High τ_y"]
+    leg_labels = ["Aug. Consumption Progressivity", "Baseline", "Aug. Labor Progressivity"]
     )
 
 CairoMakie.save("output/figures/equivalent_regimes/distributions/TaxC_dist_by_decile.png", p)
@@ -630,7 +628,7 @@ p = plot_decile_distributions_by_group(decCtaxdiff,
     title = "Consumption Tax Distribution by Decile - % Difference with Baseline",
     ylabel = "Share (%)",
     bar_palette = [:brown3, :forestgreen],
-    leg_labels = ["Low τ_y", "High τ_y"]
+    leg_labels = ["Aug. Consumption Progressivity", "Aug. Labor Progressivity"]
     )
 
 CairoMakie.save("output/figures/equivalent_regimes/distributions/TaxC_diff_dist_by_decile.png", p)
@@ -655,7 +653,7 @@ p = plot_decile_distributions_by_group(decKtax,
     title = "Capital Tax Distribution by Decile",
     ylabel = "Share (%)",
     bar_palette = [:yellow2, :gray75, :mediumpurple2],
-    leg_labels = ["Low τ_y", "Baseline", "High τ_y"]
+    leg_labels = ["Aug. Consumption Progressivity", "Baseline", "Aug. Labor Progressivity"]
     )
 
 CairoMakie.save("output/figures/equivalent_regimes/distributions/TaxK_dist_by_decile.png", p)
@@ -670,7 +668,7 @@ p = plot_decile_distributions_by_group(decKtaxdiff,
     title = "Capital Tax Distribution by Decile - % Difference with Baseline",
     ylabel = "Share (%)",
     bar_palette = [:yellow2, :mediumpurple2],
-    leg_labels = ["Low τ_y", "High τ_y"]
+    leg_labels = ["Aug. Consumption Progressivity", "Aug. Labor Progressivity"]
     )
 
 CairoMakie.save("output/figures/equivalent_regimes/distributions/TaxK_diff_dist_by_decile.png", p)
@@ -693,7 +691,7 @@ p = plot_decile_distributions_by_group(decTax,
     title = "Tax Distribution by Decile - All Taxes",
     ylabel = "Share (%)",
     bar_palette = [:orange2, :gray75, :limegreen],
-    leg_labels = ["Low τ_y", "Baseline", "High τ_y"]
+    leg_labels = ["Aug. Consumption Progressivity", "Baseline", "Aug. Labor Progressivity"]
     )
 
 CairoMakie.save("output/figures/equivalent_regimes/distributions/TaxesAll_dist_by_decile.png", p)
@@ -708,7 +706,7 @@ p = plot_decile_distributions_by_group(decTaxdiff,
     title = "Tax Distribution by Decile - All Taxes - % Difference with Baseline",
     ylabel = "Share (%)",
     bar_palette = [:orange2, :limegreen],
-    leg_labels = ["Low τ_y", "High τ_y"]
+    leg_labels = ["Aug. Consumption Progressivity", "Aug. Labor Progressivity"]
     )
 
 CairoMakie.save("output/figures/equivalent_regimes/distributions/TaxesAll_diff_dist_by_decile.png", p)
@@ -718,18 +716,18 @@ CairoMakie.save("output/figures/equivalent_regimes/distributions/TaxesAll_diff_d
 #---------------------------------# Welfare #---------------------------------#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 
-# Recompute value functions for all steady states
-ss.ep_valuef = similar(ss.stat_dist)
+# # Recompute value functions for all steady states
+# ss.ep_valuef = similar(ss.stat_dist)
 
-for i in 1:nrow(ss)
-    @views ss.ep_valuef[i] = recompute_value(ss.policy_c[i], ss.policy_l[i], ss.policy_a[i], pi_rho;
-                                           a_grid, gpar, hhpar, tol=1e-10, max_iter=10_000)
-end
+# for i in 1:nrow(ss)
+#     @views ss.ep_valuef[i] = recompute_value(ss.policy_c[i], ss.policy_l[i], ss.policy_a[i], pi_rho;
+#                                            a_grid, gpar, hhpar, tol=1e-10, max_iter=10_000)
+# end
 
-baseline.ep_valuef = similar(baseline.stat_dist)
-baseline.ep_valuef[1] = recompute_value(baseline.policy_c[1], baseline.policy_l[1], 
-                             baseline.policy_a[1], pi_rho;
-                             a_grid, gpar, hhpar, tol=1e-10, max_iter=10_000)
+# baseline.ep_valuef = similar(baseline.stat_dist)
+# baseline.ep_valuef[1] = recompute_value(baseline.policy_c[1], baseline.policy_l[1], 
+#                              baseline.policy_a[1], pi_rho;
+#                              a_grid, gpar, hhpar, tol=1e-10, max_iter=10_000)
 
 # plot_value_function(baseline.ep_valuef[1], a_grid, rho_grid; taxes = baseline.taxes[1])
 
@@ -739,7 +737,7 @@ ss.aggCEV = similar(ss.aggG)
 ss.cev_deciles = similar(ss.cons_deciles)
  
 for i in 1:nrow(ss) 
-    ss.cev[i], ss.aggCEV[i] = compute_cev(ss.ep_valuef[i], baseline.ep_valuef[1], baseline.policy_c[1], 
+    ss.cev[i], ss.aggCEV[i] = compute_cev(ss.valuef[i], baseline.valuef[1], baseline.policy_c[1], 
             baseline.policy_a[1], baseline.stat_dist[1], pi_rho)
     
     ss.cev_deciles[i] = compute_decile_distribution(ss.stat_dist[i], ss.cev[i])
@@ -765,11 +763,14 @@ p = plot_decile_distributions_by_group(decCEVdiff,
     title = "CEV by Decile - % Difference with Baseline",
     ylabel = "Share (%)",
     bar_palette = [:red, :blue],
-    leg_labels = ["Low τ_y", "High τ_y"],
+    leg_labels = ["Aug. Consumption Progressivity", "Aug. Labor Progressivity"],
     as_percentage = false
     )
 
 CairoMakie.save("output/figures/equivalent_regimes/distributions/cev_dist_by_decile.png", p)
+
+# Add CEV to table 
+push!(sec2_table, extract_low_mid_high(ss, :aggCEV; table_string = "CEV (%)"))
 
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#

@@ -1,5 +1,5 @@
 EQUIVALENT TAX REGIME SIMULATIONS - DETAILS
-Time spent: 1 day, 3 hours, 40 minutes, 46 seconds, 764 milliseconds
+Time spent: 1 day, 5 hours, 8 minutes, 25 seconds, 664 milliseconds
 
 Target regime: Taxes(0.7305, 0.1875, 0.85, 0.0343, 0.352)
 Found 48 equivalent regimes:
