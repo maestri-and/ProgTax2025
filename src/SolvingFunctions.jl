@@ -477,16 +477,7 @@ function SolveHouseholdProblem(a_grid, rho_grid, l_grid, gpar, w, r,
     # Allocate net interest rate (for simplicity)
     net_r = (1 - taxes.tau_k)r
 
-    ########## SECTION 1 - COMPUTE TAXES, CONSUMPTION AND UTILITY ##########
-
-    # @info("Solving budget constraint...")
-
-    hh_labor_tax, hh_consumption, hh_consumption_tax = compute_consumption_grid_for_itp(
-        a_grid, rho_grid, l_grid, gpar, w, r, net_r, taxes;
-        replace_neg_consumption = true
-    );
-
-    ########## SECTION 2 - COMPUTE OPTIMAL CONSUMPTION AND LABOR ##########
+    ########## SECTION 1 - COMPUTE OPTIMAL CONSUMPTION AND LABOR ##########
 
     # @info("Pinning down optimal labor and consumption using labor FOC...")
 
@@ -495,13 +486,13 @@ function SolveHouseholdProblem(a_grid, rho_grid, l_grid, gpar, w, r,
         replace_neg_consumption = true
     );
 
-    ########## SECTION 3 - INTERPOLATE POLICIES FROM FIRST ORDER CONDITIONS ##########
+    ########## SECTION 2 - INTERPOLATE POLICIES FROM FIRST ORDER CONDITIONS ##########
 
     opt_c_itp, opt_l_itp, opt_u_itp, max_a_prime = interp_opt_funs(
         a_grid, opt_c_FOC, opt_l_FOC, gpar, hhpar
     );
 
-    ########## SECTION 4 - SOLVE VALUE FUNCTION ITERATION ##########
+    ########## SECTION 3 - SOLVE VALUE FUNCTION ITERATION ##########
 
     # @info("Launching VFI...")
 
@@ -510,14 +501,14 @@ function SolveHouseholdProblem(a_grid, rho_grid, l_grid, gpar, w, r,
         V_guess = V_guess, parallelise = parallelise
     )
 
-    ########## SECTION 5 - RECONSTRUCT FINAL POLICY FUNCTIONS ##########
+    ########## SECTION 4 - RECONSTRUCT FINAL POLICY FUNCTIONS ##########
 
     policy_a_int = Spline2D_adj(rho_grid, a_grid, policy_a)
 
     policy_l = compute_policy_matrix(opt_l_itp, policy_a_int, a_grid, rho_grid)
     policy_c = compute_policy_matrix(opt_c_itp, policy_a_int, a_grid, rho_grid)
 
-    ########## SECTION 6 - RUN CHECKS ON OUTPUT ##########
+    ########## SECTION 5 - RUN CHECKS ON OUTPUT ##########
     # Check that value and policy functions contain only finite values
     for m in [valuef, policy_a, policy_c, policy_l]
         if all(isfinite.(m))
@@ -528,7 +519,7 @@ function SolveHouseholdProblem(a_grid, rho_grid, l_grid, gpar, w, r,
         end
     end
     
-    return hh_labor_tax, hh_consumption, hh_consumption_tax, opt_c_FOC, opt_l_FOC, valuef, policy_a, policy_l, policy_c
+    return opt_c_FOC, opt_l_FOC, valuef, policy_a, policy_l, policy_c
 end
 
 
@@ -619,8 +610,7 @@ function ComputeEquilibrium_Bisection(
     for iter in 1:comp_params.ms_max_iter
 
         ###### 1. Household Problem ######
-        (hh_labor_tax, hh_consumption, hh_consumption_tax,
-         opt_c_FOC, opt_l_FOC, valuef, policy_a,
+        (opt_c_FOC, opt_l_FOC, valuef, policy_a,
          policy_l, policy_c) = SolveHouseholdProblem(
              a_grid, rho_grid, l_grid, gpar, w, r_mid, taxes,
              hhpar, pi_rho, comp_params;
@@ -709,7 +699,7 @@ function ComputeEquilibrium_Newton(
     for iter in 1:comp_params.ms_max_iter
 
         ###### 1. Household Problem ######
-        (_, _, _, _, _, valuef, policy_a, policy_l, policy_c) = SolveHouseholdProblem(
+        (_, _, valuef, policy_a, policy_l, policy_c) = SolveHouseholdProblem(
             a_grid, rho_grid, l_grid, gpar, w, r_mid, taxes,
             hhpar, pi_rho, comp_params; 
             V_guess = zeros(gpar.N_rho, gpar.N_a), 
@@ -761,7 +751,7 @@ function ComputeEquilibrium_Newton(
         r_up = r_mid + dr
         w_up = cd_implied_opt_wage(r_up)
 
-        (_, _, _, _, _, _, policy_a_up, policy_l_up, _) = SolveHouseholdProblem(
+        (_, _, _, policy_a_up, policy_l_up, _) = SolveHouseholdProblem(
             a_grid, rho_grid, l_grid, gpar, w_up, r_up, taxes,
             hhpar, pi_rho, comp_params;
             V_guess = V_guess, 
@@ -1028,7 +1018,7 @@ function MultiDimEquilibriumNewton(
 
         # === Solve household problem directly at fixed r ===
         w = cd_implied_opt_wage(r)
-        _, _, _, _, _, valuef, policy_a, policy_l, policy_c = SolveHouseholdProblem(
+        _, _, valuef, policy_a, policy_l, policy_c = SolveHouseholdProblem(
             a_grid, rho_grid, l_grid, gpar, w, r, new_taxes,
             hhpar, pi_rho, comp_params,
             V_guess = zeros(gpar.N_rho, gpar.N_a),
@@ -1083,7 +1073,7 @@ function MultiDimEquilibriumNewton(
             setproperty!(new_taxes, :lambda_c, lambda_p)
 
             w_p = cd_implied_opt_wage(r_p)
-            _, _, _, _, _, _, policy_a_p, policy_l_p, policy_c_p = SolveHouseholdProblem(
+            _, _, _, policy_a_p, policy_l_p, policy_c_p = SolveHouseholdProblem(
                 a_grid, rho_grid, l_grid, gpar, w_p, r_p, new_taxes,
                 hhpar, pi_rho, comp_params,
                 V_guess = zeros(gpar.N_rho, gpar.N_a),

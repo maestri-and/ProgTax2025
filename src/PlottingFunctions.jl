@@ -96,6 +96,11 @@ colors = reverse(collect(CairoMakie.cgrad(:avocado, 10, categorical = true)))
 typed_colors = convert(Vector{Colorant}, colors)
 ColorSchemes.colorschemes[:avocado_10] = ColorScheme(typed_colors)
 
+# Helper Function for Colors
+function resolve_color(c)
+    return isa(c, Symbol) ? c : c  # convert to RGB if needed
+end
+
 ###############################################################################
 ####################### 0. PRELIMINARY PLOTS - UTILITY ########################
 ###############################################################################
@@ -109,6 +114,49 @@ function plot_f(f; x_min=-1, x_max=1)
 end
 
 # plot_f(f, x_min = -1, x_max = 5)
+
+function plot_function_family(f_vec::Vector{Function}, labels::Vector{String}, x_min::Float64, x_max::Float64;
+    titlestring = nothing,
+    labx = "x",
+    laby = "y",
+    cmap = :Set1_9,
+    y_low = 0, y_up = nothing,
+    leg_pos = :rb,
+    size = (800, 500),
+    y_ticks = nothing
+)
+    x = range(x_min, x_max, length = 300)
+    n = length(f_vec)
+
+    fig = CairoMakie.Figure(size = size)
+    ax = CairoMakie.Axis(fig[1, 1],
+        xlabel = labx,
+        ylabel = laby,
+        title = isnothing(titlestring) ? "" : titlestring,
+        titlesize = 20,
+        xlabelsize = 14,
+        ylabelsize = 14,
+        yticks = isnothing(y_ticks) ? Makie.automatic : y_ticks
+    )
+
+    colors = ColorSchemes.colorschemes[cmap].colors[1:n]
+
+    for (i, f) in enumerate(f_vec)
+        y = f.(x)
+        CairoMakie.lines!(ax, x, y; label = labels[i], color = colors[i], linewidth = 2)
+    end
+
+    CairoMakie.axislegend(ax, position = leg_pos)
+
+    CairoMakie.ylims!(ax, (y_low, y_up))
+
+    # if !isnothing(y_ticks)
+    #     CairoMakie.yticks!(ax, y_ticks)
+    # end
+
+    return fig
+end
+
 
 # Plotting dummy 3D utility function 
 
@@ -1183,7 +1231,10 @@ function plot_decile_distributions_by_group(data_dict, group_syms::Vector{Symbol
         x_vals = x_base .+ shifts[i]
         y_vals = as_percentage ? y_vals .* 100 : y_vals
         label_str = isnothing(leg_labels) ? string(sym) : leg_labels[i]
-        CairoMakie.barplot!(ax, x_vals, y_vals; width = bar_width, color = bar_palette[i], label = label_str)
+        CairoMakie.barplot!(ax, x_vals, y_vals; 
+                            width = bar_width, 
+                            color = resolve_color(bar_palette[i]), 
+                            label = label_str)
     end
 
     CairoMakie.axislegend(ax, position = legend_pos)

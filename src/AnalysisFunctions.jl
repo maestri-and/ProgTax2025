@@ -87,6 +87,70 @@ function extract_low_mid_high(df, col_sym;
     return table_row
 end
 
+function extract_acp_vs_rob(df, rowname;
+                              var_col = "variable",
+                              baseline_col = "b",
+                              acp_col = "acp",
+                              r1_col = "lc_eq",
+                              r2_col = "Crev_eq",
+                              table_string = nothing,
+                              as_percentage = false,
+                              normalise = "no",
+                              return_baseline = true
+                              )
+    # This function extracts low, mid and high scenario values for selected aggregate
+    # And outputs it to add it to the dataframe collecting aggregate results
+    # Extract row from the DataFrame
+    agg = df[df[:, var_col] .== rowname, :]
+
+    # Get target cols
+    target_cols = setdiff(names(df), [var_col, baseline_col])
+    num_cols = setdiff(names(df), [var_col])
+
+    # Normalise if desired
+    if normalise == "num"
+        base = agg[1, baseline_col]
+        for col in target_cols
+            agg[1, col] = round(agg[1, col] / base, digits = 4)
+        end
+    elseif normalise == "var"
+        base = agg[1, baseline_col]
+        for col in target_cols
+            agg[1, col] = round((agg[1, col] - base) / base, digits = 4)
+            print(agg[1, col])
+        end
+    elseif normalise == "no"
+        nothing
+    else
+        error("Check your -normalise attribute!") 
+    end
+
+    # Transform into percentages and round if desired
+    if as_percentage
+        if isa(agg[1, baseline_col], Number)
+            for col in num_cols
+                agg[1, col] = agg[1, col] * 100
+            end
+        elseif isa(agg[1, baseline_col], AbstractArray) || isa(agg[1, baseline_col], Tuple)
+            for col in num_cols
+                agg[1, col] = agg[1, col] .* 100
+            end
+        end
+    end
+
+    # Replace table name 
+    if !isnothing(table_string)
+        agg[1, var_col] = table_string
+    end
+
+    # Remove baseline if asked 
+    if !return_baseline
+        select!(agg, Not(baseline_col))
+    end
+
+    return agg
+end
+
 function compute_decile_distribution(stat_dist::AbstractMatrix, target_dist::AbstractMatrix)
     # Flatten
     weights = vec(stat_dist)
@@ -128,6 +192,56 @@ function compute_decile_distribution(stat_dist::AbstractMatrix, target_dist::Abs
     end
 
     return decile_shares
+end
+
+function compute_avg_cevs_per_income_decile(cev_matrix::Matrix, policy_l_ptinc::Matrix, stat_dist::Matrix)
+    # Flatten
+    cev = vec(cev_matrix)
+    income = vec(policy_l_ptinc)
+    weights = vec(stat_dist)
+
+    # Clean
+    valid = .!isnan.(cev) .& .!isnan.(income) .& .!isnan.(weights)
+    cev = cev[valid]
+    income = income[valid]
+    weights = weights[valid]
+
+    # Normalize weights
+    weights ./= sum(weights)
+
+    # Sort by income
+    sort_idx = sortperm(income)
+    cev = cev[sort_idx]
+    weights = weights[sort_idx]
+
+    # Compute cumulative population weights
+    cum_weights = cumsum(weights)
+
+    # Adjust last element to avoid approx errors
+    if abs(cum_weights[end] - 1) < 10^(-6)
+        cum_weights[end] = 1
+    end
+
+    # Compute decile cutoffs
+    deciles = [0.1i for i in 1:10]
+    avg_cevs = Float64[]
+
+    start_idx = 1
+    for d in deciles
+        stop_idx = findfirst(x -> x >= d, cum_weights)
+        pop_over = cum_weights[stop_idx] - d
+
+        w_sub = weights[start_idx:stop_idx]
+        c_sub = cev[start_idx:stop_idx]
+        w_sub[end] -= pop_over
+        w_sub ./= sum(w_sub)
+
+        push!(avg_cevs, sum(c_sub .* w_sub))
+
+        start_idx = stop_idx + 1
+    end
+
+    return avg_cevs
 end
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#

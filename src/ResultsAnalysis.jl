@@ -32,7 +32,6 @@ include("PlottingFunctions.jl")
 include("Parameters.jl")
 include("AnalysisFunctions.jl")
 include("Numerics.jl")
-include("AnalysisFunctions.jl")
 
 # Define if needing to keep baseline in dataset
 keep_baseline = true
@@ -112,13 +111,16 @@ ss.bkc = ifelse.(ss.tau_c .> 0, ss.lambda_c .^ (1 ./ ss.tau_c), NaN)
 # Compute Labor Income and Labor Income Tax Stats
 # Preallocate new columns
 ss.gini_income = similar(ss.lambda_y)
+ss.gini_disp_income = similar(ss.lambda_y)
 ss.policy_l_incpt = similar(ss.stat_dist)
 ss.labor_tax_policy = similar(ss.stat_dist)
 ss.labor_tax_rate = similar(ss.stat_dist)
-ss.avg_income_stats = Vector{Any}(undef, nrow(ss))
+ss.income_dist_stats = Vector{Any}(undef, nrow(ss))
 ss.avg_rates_Wtax = Vector{Any}(undef, nrow(ss))
-ss.t10tob50_inc_ratio = similar(ss.lambda_y)
-ss.t10tob90_inc_ratio = similar(ss.lambda_y)
+ss.t10tob50_ptinc_ratio = similar(ss.lambda_y)
+ss.t10tob90_ptinc_ratio = similar(ss.lambda_y)
+ss.t10tob50_atinc_ratio = similar(ss.lambda_y)
+ss.t10tob90_atinc_ratio = similar(ss.lambda_y)
 ss.aetr_Wtax = similar(ss.lambda_y)
 ss.b50t10aetr_Wtax = Vector{Any}(undef, nrow(ss))
 
@@ -132,9 +134,6 @@ for i in 1:nrow(ss)
     lambda_y = ss.lambda_y[i]
     tau_y = ss.tau_y[i]
 
-    # === Gini coefficient ===
-    ss.gini_income[i] = compute_gini(distL .* w, stat_dist, plot_curve = false)
-
     # === Gross labor income ===
     policy_l_incpt = policy_l .* rho_grid .* w
     ss.policy_l_incpt[i] = policy_l_incpt
@@ -147,12 +146,20 @@ for i in 1:nrow(ss)
     ss.labor_tax_policy[i] = labor_tax_policy
     ss.labor_tax_rate[i] = labor_tax_rate
 
+     # === Gini coefficient ===
+    ss.gini_income[i] = compute_gini(policy_l_incpt, stat_dist, plot_curve = false)
+    ss.gini_disp_income[i] = compute_gini(policy_l_incpt .- labor_tax_policy, stat_dist, plot_curve = false)
+
     # === Income distribution stats ===
-    ss.avg_income_stats[i] = compute_income_distribution_stats(stat_dist, policy_l_incpt)
+    ss.income_dist_stats[i] = compute_income_distribution_stats(stat_dist, policy_l_incpt)
 
     avg_income_stats = compute_average_income_stats(stat_dist, policy_l_incpt; cutoffs = [0.5, 0.9, -0.1])
-    ss.t10tob50_inc_ratio[i] = avg_income_stats[3][2] / avg_income_stats[1][2]
-    ss.t10tob90_inc_ratio[i] = avg_income_stats[3][2] / avg_income_stats[2][2]
+    ss.t10tob50_ptinc_ratio[i] = avg_income_stats[3][2] / avg_income_stats[1][2]
+    ss.t10tob90_ptinc_ratio[i] = avg_income_stats[3][2] / avg_income_stats[2][2]
+
+    avg_disp_income_stats = compute_average_income_stats(stat_dist, policy_l_incpt .- labor_tax_policy; cutoffs = [0.5, 0.9, -0.1])
+    ss.t10tob50_atinc_ratio[i] = avg_disp_income_stats[3][2] / avg_disp_income_stats[1][2]
+    ss.t10tob90_atinc_ratio[i] = avg_disp_income_stats[3][2] / avg_disp_income_stats[2][2]
 
     # === Average effective rates and AETR ===
     ss.avg_rates_Wtax[i] = compute_average_rate_stats(stat_dist, labor_tax_policy, policy_l_incpt = policy_l_incpt,
@@ -168,7 +175,11 @@ ss.consumption_tax_rate = similar(ss.stat_dist)
 ss.consumption_tax_rate_vat = similar(ss.stat_dist)
 ss.consumption_tax_gini = similar(ss.lambda_c)
 ss.consumption_base_gini = similar(ss.lambda_c)
+ss.consumption_gini = similar(ss.lambda_c)
 ss.kakwani_cons_tax = similar(ss.lambda_c)
+ss.cons_dist_stats = Vector{Any}(undef, nrow(ss))
+ss.t10tob50_cons_ratio = similar(ss.lambda_c)
+ss.t10tob90_cons_ratio = similar(ss.lambda_c)
 ss.avg_rates_Ctax = Vector{Any}(undef, nrow(ss))
 ss.avg_rates_Ctax_vat = Vector{Any}(undef, nrow(ss))
 ss.b10t10_rates_Ctax = Vector{Any}(undef, nrow(ss))
@@ -194,6 +205,16 @@ for i in 1:nrow(ss)
     # Gini coefficients
     ss.consumption_tax_gini[i] = compute_gini(consumption_tax_policy, stat_dist; plot_curve = false)
     ss.consumption_base_gini[i] = compute_gini(consumption_plus_tax_policy, stat_dist; plot_curve = false)
+    ss.consumption_gini[i] = compute_gini(policy_c, stat_dist; plot_curve = false)
+
+    # === Consumption distribution stats ===    
+    ss.cons_dist_stats[i] = compute_income_distribution_stats(stat_dist, policy_c)
+
+    avg_cons_stats = compute_average_income_stats(stat_dist, policy_c; cutoffs = [0.5, 0.9, -0.1])
+
+    ss.t10tob50_cons_ratio[i] = avg_cons_stats[3][2] / avg_cons_stats[1][2]
+    ss.t10tob90_cons_ratio[i] = avg_cons_stats[3][2] / avg_cons_stats[2][2]
+
 
     # Kakwani Index
     ss.kakwani_cons_tax[i] = ss.consumption_tax_gini[i] - ss.consumption_base_gini[i]
@@ -204,6 +225,8 @@ for i in 1:nrow(ss)
     ss.avg_rates_Ctax_vat[i] = compute_average_rate_stats(stat_dist, consumption_tax_policy, policy_l_incpt = policy_c,
                            cutoffs = [0.1, 0.5, 0.9, -0.1])
     ss.b10t10_rates_Ctax[i] = round.((ss.avg_rates_Ctax_vat[i][1][2], ss.avg_rates_Ctax_vat[i][4][2]), digits = 3)
+
+    
 end
 
 # compute_average_rate_stats(stat_dist, labor_tax_policy, policy_l_incpt = policy_l_incpt,
@@ -253,27 +276,31 @@ agg_table = DataFrame(agg = String[],
 #----# AGGREGATE TABLE SECTION 1 - TAXES #----#
 sec1_table = deepcopy(agg_table)
 
-# Add Government expenditure in first row
+# Add Government expenditure and tau_y, tau_c values in first and second, third rows
 push!(sec1_table, extract_low_mid_high(ss, :aggG; 
                                       table_string = "Government Expenditure",
                                       normalise = "num"))
+                                    
+push!(sec1_table, extract_low_mid_high(ss, :tau_y; 
+                                      table_string = "Labor Income Tax Progressivity"))
+push!(sec1_table, extract_low_mid_high(ss, :tau_c; 
+                                      table_string = "Consumption Tax Progressivity"))
 
 # Add Taxes bottom and top 10% average effective rates
-push!(sec1_table, extract_low_mid_high(ss, :cons_tax_rates_extrema; table_string = "Consumption Tax Effective Rates (%) - Extrema", as_percentage = true))
-push!(sec1_table, extract_low_mid_high(ss, :b10t10_rates_Ctax; table_string = "AETR (%) - Consumption — Bottom 10%, Top 10%", as_percentage = true))
 push!(sec1_table, extract_low_mid_high(ss, :b50t10aetr_Wtax; table_string = "AETR (%) - Labor Income - Bottom 50%, Top 10%", as_percentage = true))
+push!(sec1_table, extract_low_mid_high(ss, :b10t10_rates_Ctax; table_string = "AETR (%) - Consumption — Bottom 10%, Top 10%", as_percentage = true))
+push!(sec1_table, extract_low_mid_high(ss, :cons_tax_rates_extrema; table_string = "Consumption Tax Effective Rates (%) - Extrema", as_percentage = true))
 
 # Add Revenue shares 
 ss.TRevC = ss.aggT_c ./ ss.aggG
 ss.TRevW = ss.aggT_y ./ ss.aggG
 ss.TRevK = ss.aggT_k ./ ss.aggG
 
-
-push!(sec1_table, extract_low_mid_high(ss, :TRevC; 
-                                      table_string = "Consumption Taxes - % of Revenue",
-                                      as_percentage = true))
 push!(sec1_table, extract_low_mid_high(ss, :TRevW; 
                                       table_string = "Labor Income Taxes - % of Revenue",
+                                      as_percentage = true))
+push!(sec1_table, extract_low_mid_high(ss, :TRevC; 
+                                      table_string = "Consumption Taxes - % of Revenue",
                                       as_percentage = true))
 push!(sec1_table, extract_low_mid_high(ss, :TRevK; 
                                       table_string = "Capital Return Taxes - % of Revenue",
@@ -357,24 +384,51 @@ plot_colored_scatter(ss.delta_tau_y, ss.delta_tau_c, ss.gini_income;
 
 push!(sec3_table, extract_low_mid_high(ss, :gini_income; table_string = "Gini Coefficient for Pre-Tax Income"))
 
-
-# T10/B90 Pre-Tax Income Share Ratio
-plot_colored_scatter(ss.delta_tau_y, ss.delta_tau_c, ss.t10tob90_inc_ratio;
-                     ylabel = "T10/B90 Pre-Tax Income Share Ratio", 
+plot_colored_scatter(ss.delta_tau_y, ss.delta_tau_c, ss.gini_disp_income;
+                     ylabel = "After-Tax Income - Gini Coefficient", 
                      cmap = :avocado,
                      save_plot = true, 
-                     save_path = "output/figures/equivalent_regimes/aggregates/t10b90_sims.png")
+                     save_path = "output/figures/equivalent_regimes/aggregates/gini_atinc_sims.png")
 
-push!(sec3_table, extract_low_mid_high(ss, :t10tob90_inc_ratio; table_string = "Pre-Tax Income - T10B90 Share Ratio"))
+push!(sec3_table, extract_low_mid_high(ss, :gini_disp_income; table_string = "Gini Coefficient for After-Tax Income"))
 
-# T10/B50 Pre-Tax Income Share Ratio
-plot_colored_scatter(ss.delta_tau_y, ss.delta_tau_c, ss.t10tob50_inc_ratio;
+# Consumption
+# Gini for pre-tax income
+plot_colored_scatter(ss.delta_tau_y, ss.delta_tau_c, ss.consumption_gini;
+                     ylabel = "Consumption - Gini Coefficient", 
+                     cmap = :avocado,
+                     save_plot = true, 
+                     save_path = "output/figures/equivalent_regimes/aggregates/gini_cons_sims.png")
+
+push!(sec3_table, extract_low_mid_high(ss, :consumption_gini; table_string = "Gini Coefficient for Consumption"))
+
+
+# T10/B50 Pre-Tax Average Income Ratio
+plot_colored_scatter(ss.delta_tau_y, ss.delta_tau_c, ss.t10tob50_ptinc_ratio;
+                     ylabel = "T10/B50 Average Pre-Tax Income Ratio", 
+                     cmap = :avocado,
+                     save_plot = true, 
+                     save_path = "output/figures/equivalent_regimes/aggregates/t10b50_inc_sims.png")
+
+push!(sec3_table, extract_low_mid_high(ss, :t10tob50_ptinc_ratio; table_string = "Pre-Tax Income - T10/B50 Average Ratio"))
+
+# T10/B50 After-Tax Average Income Ratio
+plot_colored_scatter(ss.delta_tau_y, ss.delta_tau_c, ss.t10tob50_atinc_ratio;
                      ylabel = "T10/B50 Pre-Tax Income Share Ratio", 
                      cmap = :avocado,
                      save_plot = true, 
-                     save_path = "output/figures/equivalent_regimes/aggregates/t10b50_sims.png")
+                     save_path = "output/figures/equivalent_regimes/aggregates/t10b50_atinc_sims.png")
 
-push!(sec3_table, extract_low_mid_high(ss, :t10tob50_inc_ratio; table_string = "Pre-Tax Income - T10B50 Share Ratio"))
+push!(sec3_table, extract_low_mid_high(ss, :t10tob50_atinc_ratio; table_string = "After-Tax Income - T10/B50 Average Ratio"))
+
+# T10/B50 Average Consumption Ratio 
+plot_colored_scatter(ss.delta_tau_y, ss.delta_tau_c, ss.t10tob50_cons_ratio;
+                     ylabel = "T10/B50 Average Consumption Ratio", 
+                     cmap = :avocado,
+                     save_plot = true, 
+                     save_path = "output/figures/equivalent_regimes/aggregates/t10b50_cons_sims.png")
+
+push!(sec3_table, extract_low_mid_high(ss, :t10tob50_cons_ratio; table_string = "Consumption - T10/B50 Average Ratio"))
 
 
 #-----# Taxes #-----#
@@ -495,6 +549,11 @@ p = plot_decile_distributions_by_group(decKdiff,
 
 CairoMakie.save("output/figures/equivalent_regimes/distributions/asset_diff_dist_by_decile.png", p)
 
+# Compute Gini for wealth distribution 
+ss.wealth_gini = similar(ss.lambda_c)
+for i in 1:nrow(ss)
+    ss.wealth_gini[i] = compute_gini(ss.policy_a[i], ss.stat_dist[i])
+end
 
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #-------------------------------# Hours worked #------------------------------#
@@ -545,7 +604,49 @@ CairoMakie.save("output/figures/equivalent_regimes/distributions/hours_diff_dist
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
 #----------------------------------# Taxes #----------------------------------#
 #-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#-#
- 
+
+# Plot average and marginal rates for labor income taxes
+# Plot AER 
+aer_b(y) = (1 - ss.lambda_y[idx_middle] * y ^ (-ss.tau_y[idx_middle])) *100
+aer_acp(y) = (1 - ss.lambda_y[idx_low_tau_y] * y ^ (-ss.tau_y[idx_low_tau_y])) *100
+aer_alp(y) = (1 - ss.lambda_y[idx_high_tau_y] * y ^ (-ss.tau_y[idx_high_tau_y])) *100
+
+p = plot_function_family([aer_b, aer_acp, aer_alp], 
+    ["Baseline", "ACP", "ALP"], 
+    minimum(ss.policy_l_incpt[idx_low_tau_y]), maximum(ss.policy_l_incpt[idx_low_tau_y]);
+    laby = "AER (%)",
+    labx = "Pre-Tax Income",
+    cmap = :Set1_8,
+    # y_low = aer_Crev_eq(minimum(policy_c_b)), 
+    # y_low = -56.0,
+    y_up = 45.0,
+    size = (500, 500),
+    y_ticks = [0.0, 10.0, 20.0, 30.0, 40.0]
+)
+
+CairoMakie.save("output/figures/equivalent_regimes/aers_acp_alp.png", p)
+
+
+# Plot AMR across consumption taxes 
+amr_b(y) = (1 - ss.lambda_y[idx_middle] * (1-ss.tau_y[idx_middle]) * y ^ (-ss.tau_y[idx_middle])) *100
+amr_acp(y) = (1 - ss.lambda_y[idx_low_tau_y] * (1-ss.tau_y[idx_low_tau_y]) * y ^ (-ss.tau_y[idx_low_tau_y])) *100
+amr_alp(y) = (1 - ss.lambda_y[idx_high_tau_y] * (1-ss.tau_y[idx_high_tau_y]) * y ^ (-ss.tau_y[idx_high_tau_y])) *100
+
+p = plot_function_family([amr_b, amr_acp, amr_alp], 
+    ["Baseline", "ACP", "ALP"], 
+    minimum(ss.policy_l_incpt[idx_low_tau_y]), maximum(ss.policy_l_incpt[idx_low_tau_y]);
+    laby = "MR (%)",
+    labx = "Pre-Tax Income",
+    cmap = :Set1_8,
+    size = (500, 500),
+    y_ticks = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0],
+    leg_pos = :rb
+)
+
+CairoMakie.save("output/figures/equivalent_regimes/mrs_acp_alp.png", p)
+
+
+
 #----# Labor Taxes #----#
 densWtax = build_density_dict(ss, :distWtax, idx_low_tau_y, idx_middle, idx_high_tau_y)
 plot_densities_by_group(densWtax, [:low, :mid, :high];
@@ -735,33 +836,39 @@ CairoMakie.save("output/figures/equivalent_regimes/distributions/TaxesAll_diff_d
 ss.cev = similar(ss.stat_dist)
 ss.aggCEV = similar(ss.aggG)
 ss.cev_deciles = similar(ss.cons_deciles)
- 
+ss.cev_by_inc_decile = similar(ss.cons_deciles)
+
 for i in 1:nrow(ss) 
     ss.cev[i], ss.aggCEV[i] = compute_cev(ss.valuef[i], baseline.valuef[1], baseline.policy_c[1], 
             baseline.policy_a[1], baseline.stat_dist[1], pi_rho)
     
     ss.cev_deciles[i] = compute_decile_distribution(ss.stat_dist[i], ss.cev[i])
 
+    ss.cev_by_inc_decile[i] = compute_avg_cevs_per_income_decile(ss.cev[i], ss.policy_l_incpt[idx_middle], ss.stat_dist[i]) ./ 10
+
 end
+
 
 # Plot aggregate CEV
 plot_colored_scatter(ss.delta_tau_y, ss.delta_tau_c, ss.aggCEV;
-                     ylabel = "Δ Aggregate CEV (%)",
+                     ylabel = "Aggregate CEV (%)",
                      cmap = :avocado,
                      save_plot = true, 
                      save_path = "output/figures/equivalent_regimes/aggregates/aggCEV_sims.png")
 
+push!(sec3_table, extract_low_mid_high(ss, :aggCEV; table_string = "CEV (%)"))
+
 
 # Compare CEV distributions across tax regimes - Who gained, who lost?
 # Compare differences 
-decCEVdiff = Dict(:lowdiff => ss.cev_deciles[idx_low_tau_y],
-                :highdiff => ss.cev_deciles[idx_high_tau_y])
+decCEVdiff = Dict(:lowdiff => ss.cev_by_inc_decile[idx_low_tau_y],
+                :highdiff => ss.cev_by_inc_decile[idx_high_tau_y])
             
 p = plot_decile_distributions_by_group(decCEVdiff,
     [:lowdiff, :highdiff];
     legend_pos = :lb,
-    title = "CEV by Decile - % Difference with Baseline",
-    ylabel = "Share (%)",
+    title = "CEV by Income Decile - % Difference with Baseline",
+    ylabel = "Δ (%)",
     bar_palette = [:red, :blue],
     leg_labels = ["Aug. Consumption Progressivity", "Aug. Labor Progressivity"],
     as_percentage = false
@@ -784,53 +891,21 @@ agg_table = vcat(sec1_table, sec2_table, sec3_table)
 # Output in LaTeX
 at_tek = pretty_table(agg_table, backend = Val(:latex))
 
+open("output/tables/equivalent_regimes/tax_summary.tex", "w") do io
+    pretty_table(io, sec1_table, backend = Val(:latex))
+end
+
+# Round before outputting
+push!(sec3_table, extract_low_mid_high(ss, :wealth_gini; 
+                                       table_string = "Gini Coefficient for Wealth"))
+sec3_table.low .= round.(sec3_table.low, digits=3)
+sec3_table.mid .= round.(sec3_table.mid, digits=3)
+sec3_table.high .= round.(sec3_table.high, digits=3)
+open("output/tables/equivalent_regimes/inequality_welfare.tex", "w") do io
+    pretty_table(io, sec3_table, backend = Val(:latex))
+end
+
 open("output/tables/equivalent_regimes/agg_table.tex", "w") do io
     pretty_table(io, agg_table, backend = Val(:latex))
 end
 
-
-
-
-
-
-
-
-
-
-
-################################################################################
-
-
-# # Plot consumption by progressivity 
-# plot_aggregate_surface(ss.aggC, ss.tau_c, ss.tau_y;
-#                         zlabel = "Consumption",
-#                         title_text = "Aggregate consumption by tax progressivity",
-#                         cmap = :avocado,
-#                         azimuth = 5π/4)
-
-# # Government expenditure
-# plot_aggregate_surface(ss.G, ss.tau_c, ss.tau_y;
-#                     zlabel = "Government expenditure",
-#                     title_text = "Government expenditure by tax progressivity",
-#                     cmap = :linear_bgyw_20_98_c66_n256)
-
-# # Savings/Capital
-# plot_aggregate_surface(ss.aggK, ss.tau_c, ss.tau_y;
-#                     zlabel = "Aggregate savings",
-#                     title_text = "Aggregate savings by tax progressivity",
-#                     cmap = :summer)
-
-# # Interest rate                    
-# plot_aggregate_surface(ss.r, ss.tau_c, ss.tau_y;
-#                     zlabel = "Interest rate",
-#                     title_text = "Equilibrium rate by tax progressivity",
-#                     cmap = :heat,
-#                     azimuth = 5π/4)
-
-# # Wage
-# plot_aggregate_surface(ss.w, ss.tau_c, ss.tau_y;
-#                     zlabel = "Wage",
-#                     title_text = "Equilibrium wage by tax progressivity",
-#                     cmap = :haline)
-
-# # Interest rate
